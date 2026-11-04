@@ -25,6 +25,7 @@ python3 ascension.py --seed 7   # reproducible run
 - **Factions:** Luddites, Outer-World Rebels, Timeline Purists. Low Cohesion triggers hoarding, strikes (WPS halved) and Civil War (WPS x0.25) until you pay to resolve it.
 - **Tech tree:** 12 techs in a dependency chain, Primitive Fire to Multiversal Lattice. Each tech also boosts one industry.
 - **Industries:** five sectors that improve at different natural speeds (Computation fast, Biosphere slow). Extraction raises WPS, Computation raises research yield, Fabrication cuts tech costs, Biosphere lowers the comfort you need, Counter-Intelligence blunts rival attacks. Spend Watts to invest in any of them. Strikes and civil war slow all growth.
+- **3D maps (bundled three.js, no CDN):** the *Worlds* view shows each civilization's own planet: you hold real Earth (country borders), each rival holds a procedurally generated alien world (Virel IV, Kharon, Umbra, Eden Reach) with its own palette and provinces. Territory spreads from the capital as output grows, and higher tiers add orbital structures. Click a legend row to hop between worlds. The *Galaxy* view shows all five planets in a spiral galaxy with growing star territories.
 - **Achievements:** permanent, compounding WPS multipliers.
 - **Rivals:** four AI civilizations with different starting IQs that grow over time. IQ drives how fast they compound output, how often they blunder, and how hard they hit a disunited civilization. First to Tier 5 wins. Each has a specialty:
   - **Vael Collective** (Computation): IQ grows 35% faster; cyber attacks drain your research fund.
@@ -33,3 +34,7 @@ python3 ascension.py --seed 7   # reproducible run
   - **Aurelian Concord** (Biosphere): pacifist and rarely blunders; offers trade pacts that help you both.
 
 A near-perfect run takes roughly 270 ticks; the smartest rival finishes around 315, so sloppy play loses the race.
+
+## Rebuilding the 3D bundle
+
+Only needed after editing `src/*.js`: `./tools/build-map.sh` (bundles three.js into `public/map.bundle.js` and regenerates `public/earth.json`).

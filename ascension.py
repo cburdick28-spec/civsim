@@ -967,6 +967,7 @@ class Game:
             "penalty": self.penalty_modifier,
             "tier": {"level": tier.level, "name": tier.name},
             "highest_tier": self.highest_tier,
+            "progress": clamp((math.log10(max(self.wps, 1.0)) - 1.0) / 10.0, 0.0, 1.0),
             "next_tier": ({"level": TIERS[tier.level + 1].level, "name": TIERS[tier.level + 1].name,
                            "threshold": TIERS[tier.level + 1].wps_threshold} if tier.level < 5 else None),
             "cohesion": self.population.cohesion,

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Ascension: Type Omega</title>
 <style>
   :root {
@@ -54,6 +55,19 @@
   .rival { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .rival:last-child { border-bottom: 0; }
   .indgrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .mapwrap { position: relative; height: 500px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+             background: radial-gradient(800px 420px at 50% 40%, #0c1630, #04070d); }
+  .mapwrap .view, .mapwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .maplabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .maplabel { position: absolute; transform: translate(-50%, -150%); font-size: 11px; white-space: nowrap; padding: 1px 7px;
+              border-radius: 99px; background: rgba(4,7,13,.65); border: 1px solid; text-shadow: 0 0 4px #000; }
+  .maplegend { position: absolute; top: 10px; left: 10px; background: rgba(7,11,20,.8); border: 1px solid var(--line);
+               border-radius: 10px; padding: 6px 8px; font-size: 12px; max-width: calc(100% - 150px); }
+  .maplegend .lg { display: flex; gap: 8px; align-items: center; padding: 3px 2px; cursor: pointer; }
+  .maplegend .lg:hover { color: var(--accent); }
+  .maplegend .lg.sel { color: var(--accent); font-weight: 600; }
+  .maplegend .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .mapctl { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
   .chip.on { color: var(--good); border-color: var(--good); }
@@ -83,6 +97,26 @@
 <main>
   <section class="panel c12">
     <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel c12">
+    <div class="row" style="margin-bottom:10px">
+      <h2 style="margin:0" class="grow">World map <span class="meta">&mdash; drag to rotate, scroll to zoom, click a name to fly there. Territory grows with output; rival attacks show as pulses.</span></h2>
+      <button id="viewEarth" class="primary">Worlds</button>
+      <button id="viewGalaxy">Galaxy</button>
+    </div>
+    <div id="globeWrap" class="mapwrap">
+      <div id="globe" class="view"></div>
+      <div id="globeLabels" class="maplabels"></div>
+      <div id="globeLegend" class="maplegend"></div>
+      <div class="mapctl"><button id="globeCenter">Reset zoom</button><button id="globeAuto">Auto-rotate: on</button></div>
+    </div>
+    <div id="mapWrap" class="mapwrap" style="display:none">
+      <div id="map" class="view"></div>
+      <div id="mapLabels" class="maplabels"></div>
+      <div id="mapLegend" class="maplegend"></div>
+      <div class="mapctl"><button id="mapCenter">Center</button><button id="mapAuto">Auto-rotate: on</button></div>
+    </div>
   </section>
 
   <section class="panel c12">
@@ -145,7 +179,7 @@
 const SAVE_KEY = 'ascension-type-omega-save-v1';
 const UNITS = ['W','kW','MW','GW','TW','PW','EW','ZW','YW'];
 const TIER_T = [10, 1e3, 1e5, 1e7, 1e9, 1e11];
-let state = null, view = null, busy = false, auto = false, logLines = [];
+let state = null, view = null, busy = false, auto = false, logLines = [], galaxy = null, globe = null, worldsRef = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -202,6 +236,8 @@ function addLog(line) {
     : t.startsWith('!!') || t.startsWith('! ') ? 'warn'
     : t.startsWith('>>') || /^(Vael|Orion|Nyx|Aurelian)/.test(t) ? 'rival' : 'dim';
   el.textContent = line;
+  if (galaxy) galaxy.handleLog(line);
+  if (globe) globe.handleLog(line);
   const log = $('log'); log.appendChild(el);
   while (log.children.length > 150) log.removeChild(log.firstChild);
   log.scrollTop = log.scrollHeight;
@@ -209,6 +245,9 @@ function addLog(line) {
 
 function render() {
   const v = view; if (!v) return;
+  if (worldsRef) worldsRef.update(v, state.seed);
+  if (galaxy) galaxy.update(v, state.seed);
+  if (globe) globe.update(v, state.seed);
   $('seedTag').textContent = 'seed ' + state.seed;
 
   const lo = Math.log10(Math.max(TIER_T[v.tier.level], 1)), hi = v.next_tier ? Math.log10(v.next_tier.threshold) : lo + 1;
@@ -333,6 +372,47 @@ for (const k of ['comfort', 'research', 'conquest']) {
     action: 'allocate', comfort: Number($('sl-comfort').value), research: Number($('sl-research').value), conquest: Number($('sl-conquest').value),
   }, true));
 }
+
+// ---- 3D maps (bundled locally, no CDN) ----
+function showView(which) {
+  $('globeWrap').style.display = which === 'earth' ? 'block' : 'none';
+  $('mapWrap').style.display = which === 'galaxy' ? 'block' : 'none';
+  $('viewEarth').classList.toggle('primary', which === 'earth');
+  $('viewGalaxy').classList.toggle('primary', which === 'galaxy');
+}
+$('viewEarth').addEventListener('click', () => showView('earth'));
+$('viewGalaxy').addEventListener('click', () => showView('galaxy'));
+(async function initMaps() {
+  let m = null;
+  try { m = await import('./map.bundle.js'); } catch (e) {
+    const msg = '<div class="meta" style="padding:16px">3D map unavailable here (' + esc(e.message) + '). The rest of the game still works.</div>';
+    $('globeWrap').innerHTML = msg; $('mapWrap').innerHTML = msg; return;
+  }
+  let worlds = null;
+  try {
+    worlds = await m.createWorlds({dataUrl: './earth.json'});
+    worlds.onChange = () => {
+      if (view && state) { if (galaxy) galaxy.update(view, state.seed); if (globe) globe.update(view, state.seed); }
+    };
+    worldsRef = worlds;
+    if (view && state) worlds.update(view, state.seed);
+  } catch (e) {
+    const msg = '<div class="meta" style="padding:16px">Worlds unavailable (' + esc(e.message) + '). The rest of the game still works.</div>';
+    $('globeWrap').innerHTML = msg; $('mapWrap').innerHTML = msg; return;
+  }
+  try {
+    galaxy = m.createGalaxyMap({container: $('map'), labelsEl: $('mapLabels'), legendEl: $('mapLegend'), worlds});
+    $('mapAuto').addEventListener('click', () => { $('mapAuto').textContent = 'Auto-rotate: ' + (galaxy.toggleAuto() ? 'on' : 'off'); });
+    $('mapCenter').addEventListener('click', () => galaxy.focus(-1));
+    if (view && state) galaxy.update(view, state.seed);
+  } catch (e) { $('mapWrap').innerHTML = '<div class="meta" style="padding:16px">Galaxy view unavailable (' + esc(e.message) + ').</div>'; }
+  try {
+    globe = m.createGlobeMap({container: $('globe'), labelsEl: $('globeLabels'), legendEl: $('globeLegend'), worlds});
+    $('globeAuto').addEventListener('click', () => { $('globeAuto').textContent = 'Auto-rotate: ' + (globe.toggleAuto() ? 'on' : 'off'); });
+    $('globeCenter').addEventListener('click', () => globe.focus(0));
+    if (view && state) globe.update(view, state.seed);
+  } catch (e) { $('globeWrap').innerHTML = '<div class="meta" style="padding:16px">Earth view unavailable (' + esc(e.message) + ').</div>'; }
+})();
 
 // ---- boot ----
 (async function init() {
