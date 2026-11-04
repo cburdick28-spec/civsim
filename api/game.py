@@ -30,7 +30,7 @@ class ActionRequest(BaseModel):
     state: Optional[Dict[str, Any]] = None
     seed: Optional[int] = None        # new
     count: Optional[int] = None       # step
-    key: Optional[str] = None         # research
+    key: Optional[str] = None         # research / invest
     faction: Optional[str] = None     # address
     comfort: Optional[int] = None     # allocate
     research: Optional[int] = None    # allocate
@@ -84,6 +84,12 @@ def handle(req: ActionRequest) -> Dict[str, Any]:
         ok, message = game.address_unrest(target)
         log = [f"[t{game.tick_count}] {line}" for line in game.refresh()] if ok else []
         return _respond(game, ok, message, log)
+
+    if req.action == "invest":
+        if not req.key:
+            raise HTTPException(status_code=400, detail="Missing industry key.")
+        ok, message = game.invest(req.key)
+        return _respond(game, ok, message, [])
 
     if req.action == "allocate":
         if req.comfort is None or req.research is None or req.conquest is None:
