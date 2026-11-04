@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ascension: Type Omega</title>
+<style>
+  :root {
+    --bg: #070b14; --panel: #0e1626; --panel2: #131d31; --line: #223152;
+    --text: #e6edf7; --dim: #8a99b8; --accent: #4cc9f0; --good: #06d6a0; --warn: #ffb703; --bad: #ef476f;
+    --purple: #9b7bff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 20% -10%, #14234a 0%, var(--bg) 60%) fixed; color: var(--text);
+         font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: rgba(7,11,20,.7); backdrop-filter: blur(6px);
+           position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .c12 { grid-column: span 12; } .c8 { grid-column: span 8; } .c7 { grid-column: span 7; } .c6 { grid-column: span 6; }
+  .c5 { grid-column: span 5; } .c4 { grid-column: span 4; }
+  @media (max-width: 900px) { .c8, .c7, .c6, .c5, .c4 { grid-column: span 12; } }
+  .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .stat { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat .k { color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  .stat .v { font-size: 20px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .s { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .bar { height: 8px; background: #0a1120; border-radius: 99px; overflow: hidden; border: 1px solid var(--line); margin-top: 6px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .tag.bad { color: var(--bad); border-color: var(--bad); } .tag.good { color: var(--good); border-color: var(--good); }
+  .tag.warn { color: var(--warn); border-color: var(--warn); }
+  button { background: #1a2a4a; color: var(--text); border: 1px solid #2d4372; border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: #22386a; border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 650; }
+  button.primary:hover:not(:disabled) { background: #7bd8f6; }
+  button.danger { border-color: var(--bad); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; }
+  select { background: #0a1120; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+  .slider { display: grid; grid-template-columns: 90px 1fr 48px; gap: 10px; align-items: center; margin: 8px 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .item { border: 1px solid var(--line); background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .item.done { opacity: .6; }
+  .item .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .item .name { font-weight: 600; }
+  .item .desc { color: var(--dim); font-size: 12px; margin: 2px 0 6px; }
+  .meta { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .rival { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .rival:last-child { border-bottom: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .chip.on { color: var(--good); border-color: var(--good); }
+  #log { height: 240px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #060a12;
+         border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #log div.bad { color: var(--bad); } #log div.good { color: var(--good); } #log div.warn { color: var(--warn); }
+  #log div.rival { color: var(--purple); } #log div.dim { color: var(--dim); }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #14213d; border: 1px solid var(--accent);
+           padding: 9px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; max-width: 90vw; }
+  #toast.show { opacity: 1; } #toast.err { border-color: var(--bad); }
+  #overlay { position: fixed; inset: 0; background: rgba(4,7,13,.82); display: none; align-items: center; justify-content: center; z-index: 30; }
+  #overlay.show { display: flex; }
+  #overlay .card { background: var(--panel); border: 1px solid var(--accent); border-radius: 16px; padding: 28px 34px; text-align: center; max-width: 440px; }
+  #overlay h3 { font-size: 24px; margin: 0 0 8px; }
+  body.busy button { pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ascension<span>:</span> Type Omega</h1>
+  <div class="row">
+    <span class="tag" id="seedTag">seed -</span>
+    <button id="btnNew" class="danger">New game</button>
+  </div>
+</header>
+
+<main>
+  <section class="panel c12">
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel c4">
+    <h2>Simulation</h2>
+    <div class="row">
+      <button class="primary" data-step="1">Step 1</button>
+      <button data-step="10">Step 10</button>
+      <button data-step="50">Step 50</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnAuto">Auto-run</button>
+      <select id="speed">
+        <option value="900">Slow</option><option value="450" selected>Normal</option><option value="120">Fast</option>
+      </select>
+    </div>
+    <h2 style="margin-top:18px">Budget</h2>
+    <div class="meta" id="budgetNote"></div>
+    <div class="slider"><label>Comfort</label><input type="range" min="0" max="100" data-k="comfort" id="sl-comfort"><b id="lb-comfort"></b></div>
+    <div class="slider"><label>Research</label><input type="range" min="0" max="100" data-k="research" id="sl-research"><b id="lb-research"></b></div>
+    <div class="slider"><label>Conquest</label><input type="range" min="0" max="100" data-k="conquest" id="sl-conquest"><b id="lb-conquest"></b></div>
+    <div class="meta">Reserve (treasury): <b id="lb-reserve"></b></div>
+  </section>
+
+  <section class="panel c8">
+    <h2>Technology</h2>
+    <div id="techs"></div>
+  </section>
+
+  <section class="panel c5">
+    <h2>Factions</h2>
+    <div id="factions"></div>
+  </section>
+
+  <section class="panel c7">
+    <h2>Rival civilizations</h2>
+    <div id="rivals"></div>
+    <div class="meta" style="margin-top:8px">Rivals learn over time. Smart ones compound faster, blunder less, and steal from a disunited civilization.</div>
+  </section>
+
+  <section class="panel c6">
+    <h2>Achievements</h2>
+    <div class="chips" id="ach"></div>
+  </section>
+
+  <section class="panel c6">
+    <h2>Event log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<div id="overlay"><div class="card"><h3 id="ovTitle"></h3><p id="ovText" class="meta"></p><button class="primary" id="ovNew">New game</button></div></div>
+
+<script>
+const SAVE_KEY = 'ascension-type-omega-save-v1';
+const UNITS = ['W','kW','MW','GW','TW','PW','EW','ZW','YW'];
+const TIER_T = [10, 1e3, 1e5, 1e7, 1e9, 1e11];
+let state = null, view = null, busy = false, auto = false, logLines = [];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function fmt(v, perSec) {
+  let i = 0;
+  while (Math.abs(v) >= 1000 && i < UNITS.length - 1) { v /= 1000; i++; }
+  return v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ' + UNITS[i] + (perSec ? '/s' : '');
+}
+const pct = (v) => Math.max(0, Math.min(100, v)).toFixed(0) + '%';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let toastTimer = null;
+function toast(msg, isErr) {
+  const t = $('toast'); t.textContent = msg; t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, 2600);
+}
+
+async function api(body) {
+  const r = await fetch('/api/game', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) {
+    let detail = '';
+    try { detail = (await r.json()).detail; } catch (e) { /* ignore */ }
+    throw new Error(detail || ('Server error ' + r.status));
+  }
+  return r.json();
+}
+
+async function act(body, quiet) {
+  if (busy) return null;
+  busy = true; document.body.classList.add('busy');
+  try {
+    const res = await api(Object.assign({state: state}, body));
+    state = res.state; view = res.view;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) { /* storage blocked */ }
+    (res.log || []).forEach(addLog);
+    if (!quiet || !res.ok) toast(res.message, !res.ok);
+    render();
+    return res;
+  } catch (e) {
+    toast(e.message, true); stopAuto();
+    return null;
+  } finally {
+    busy = false; document.body.classList.remove('busy');
+  }
+}
+
+function addLog(line) {
+  logLines.push(line);
+  if (logLines.length > 150) logLines.shift();
+  const el = document.createElement('div');
+  const t = line.replace(/^\[t\d+\]\s*/, '');
+  el.className = t.startsWith('!!!') || t.startsWith('###') ? 'bad'
+    : t.startsWith('***') || t.startsWith('>>>') ? 'good'
+    : t.startsWith('!!') || t.startsWith('! ') ? 'warn'
+    : t.startsWith('>>') || /^(Vael|Orion|Nyx|Aurelian)/.test(t) ? 'rival' : 'dim';
+  el.textContent = line;
+  const log = $('log'); log.appendChild(el);
+  while (log.children.length > 150) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function render() {
+  const v = view; if (!v) return;
+  $('seedTag').textContent = 'seed ' + state.seed;
+
+  const lo = Math.log10(Math.max(TIER_T[v.tier.level], 1)), hi = v.next_tier ? Math.log10(v.next_tier.threshold) : lo + 1;
+  const tierFrac = v.next_tier ? Math.max(0, Math.min(1, (Math.log10(Math.max(v.wps, 1)) - lo) / (hi - lo))) : 1;
+  const cohClass = v.cohesion < 15 ? 'bad' : v.cohesion < 40 ? 'bad' : v.cohesion < 60 ? 'warn' : 'good';
+  const pen = v.penalty < 1 ? '<span class="tag bad">' + (v.penalty === 0.25 ? 'CIVIL WAR x0.25' : 'STRIKE x0.5') + '</span>' : '';
+  $('stats').innerHTML =
+    stat('Tick', v.tick.toLocaleString(), 'T+' + v.seconds.toLocaleString() + 's') +
+    stat('Watts', fmt(v.watts), 'Research fund ' + fmt(v.research_fund)) +
+    stat('WPS', fmt(v.wps, true), 'base ' + fmt(v.raw_wps, true) + ' x ' + v.multiplier.toFixed(2) + ' ' + pen) +
+    stat('Tier ' + v.tier.level, esc(v.tier.name), v.next_tier ? 'next: Tier ' + v.next_tier.level + ' at ' + fmt(v.next_tier.threshold, true) : 'Maximum tier', tierFrac * 100, 'var(--accent)') +
+    stat('Cohesion', v.cohesion.toFixed(1) + '%', 'comfort needed: ' + v.required_comfort + '%', v.cohesion, 'var(--' + cohClass + ')') +
+    stat('Free Will', v.free_will.toFixed(1) + '%', 'volatility of factions', v.free_will, 'var(--purple)');
+
+  // budget
+  for (const k of ['comfort', 'research', 'conquest']) {
+    const el = $('sl-' + k);
+    if (document.activeElement !== el) el.value = v.allocation[k];
+    $('lb-' + k).textContent = v.allocation[k] + '%';
+  }
+  $('lb-reserve').textContent = v.allocation.reserve + '%';
+  const over = v.allocation.research + v.allocation.conquest > 55;
+  $('budgetNote').innerHTML = 'Comfort needs >= ' + v.required_comfort + '% at this tier.' +
+    (v.allocation.comfort < v.required_comfort ? ' <span class="tag bad">underfunded</span>' : '') +
+    (over ? ' <span class="tag warn">over-allocated</span>' : '');
+
+  $('techs').innerHTML = v.techs.map((t) => {
+    const locked = !t.researched && t.missing.length > 0;
+    const status = t.researched ? '<span class="tag good">researched</span>'
+      : locked ? '<span class="tag">needs ' + esc(t.missing.join(', ')) + '</span>'
+      : t.affordable ? '<span class="tag warn">ready</span>' : '<span class="tag">saving up</span>';
+    return '<div class="item' + (t.researched ? ' done' : '') + '"><div class="top"><span class="name">' + esc(t.name) +
+      ' <span class="meta">Tier ' + t.tier + '</span></span>' + status + '</div><div class="desc">' + esc(t.description) + '</div>' +
+      '<div class="row"><span class="meta grow">cost ' + fmt(t.cost) + ' &middot; +' + fmt(t.wps_bonus, true) + '</span>' +
+      '<button data-research="' + esc(t.key) + '"' + (t.researched || locked || !t.affordable ? ' disabled' : '') + '>Research</button></div></div>';
+  }).join('');
+
+  $('factions').innerHTML = v.factions.map((f) =>
+    '<div class="item"><div class="top"><span class="name">' + esc(f.name) + '</span>' +
+    '<span class="tag ' + (f.active ? 'bad' : '') + '">' + esc(f.status) + '</span></div>' +
+    '<div class="desc">' + esc(f.description) + '</div>' +
+    '<div class="meta">influence ' + f.influence.toFixed(1) + '</div><div class="bar"><i style="width:' + pct(f.influence) + ';background:' + (f.active ? 'var(--bad)' : 'var(--warn)') + '"></i></div>' +
+    '<div class="row" style="margin-top:8px"><span class="meta grow">cost ' + fmt(f.cost) + '</span>' +
+    '<button data-address="' + esc(f.name) + '"' + (!f.active && f.influence < 5 ? ' disabled' : '') + '>Address unrest</button></div></div>'
+  ).join('');
+
+  $('rivals').innerHTML = v.rivals.slice().sort((a, b) => b.wps - a.wps).map((r) =>
+    '<div class="rival"><div><b>' + esc(r.name) + '</b><div class="meta">Tier ' + r.tier + ' &middot; ' + fmt(r.wps, true) + '</div></div>' +
+    '<div><div class="meta">IQ ' + r.iq.toFixed(1) + ' (' + esc(r.label) + ') <span class="' + (r.iq >= r.start_iq ? '' : '') + '">' + (r.iq - r.start_iq >= 0 ? '+' : '') + (r.iq - r.start_iq).toFixed(1) + '</span></div>' +
+    '<div class="bar"><i style="width:' + pct((r.iq - 40) / 1.6) + ';background:var(--purple)"></i></div></div>' +
+    '<div><div class="meta">Race to Tier 5 &middot; ' + (r.progress * 100).toFixed(0) + '%</div><div class="bar"><i style="width:' + pct(r.progress * 100) + ';background:' + (r.progress > 0.8 ? 'var(--bad)' : 'var(--accent)') + '"></i></div></div></div>'
+  ).join('');
+
+  $('ach').innerHTML = v.achievements.map((a) =>
+    '<span class="chip' + (a.unlocked ? ' on' : '') + '" title="' + esc(a.description) + '">' + esc(a.name) + ' x' + a.multiplier.toFixed(2) + '</span>').join('');
+
+  const ov = $('overlay');
+  if (v.game_over) {
+    $('ovTitle').textContent = v.victory ? 'TYPE OMEGA ACHIEVED' : 'DEFEAT';
+    $('ovText').textContent = v.victory
+      ? 'Multiversal Mastery with every technology unlocked in ' + v.tick + ' ticks (x' + v.multiplier.toFixed(2) + ' multiplier).'
+      : v.defeated_by + ' reached Multiversal Mastery first, at tick ' + v.tick + '.';
+    ov.classList.add('show'); stopAuto();
+  } else {
+    ov.classList.remove('show');
+  }
+}
+
+function stat(k, v, s, barPct, color) {
+  return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + s + '</div>' +
+    (barPct !== undefined ? '<div class="bar"><i style="width:' + pct(barPct) + ';background:' + color + '"></i></div>' : '') + '</div>';
+}
+
+// ---- auto-run ----
+function stopAuto() { auto = false; $('btnAuto').textContent = 'Auto-run'; $('btnAuto').classList.remove('primary'); }
+async function startAuto() {
+  auto = true; $('btnAuto').textContent = 'Pause'; $('btnAuto').classList.add('primary');
+  while (auto && view && !view.game_over) {
+    while (busy) await sleep(30);
+    await act({action: 'step', count: 1}, true);
+    await sleep(Number($('speed').value));
+  }
+  stopAuto();
+}
+
+// ---- events ----
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.step) act({action: 'step', count: Number(b.dataset.step)}, true);
+  else if (b.dataset.research) act({action: 'research', key: b.dataset.research});
+  else if (b.dataset.address) act({action: 'address', faction: b.dataset.address});
+});
+$('btnAuto').addEventListener('click', () => { auto ? stopAuto() : startAuto(); });
+async function newGame() {
+  if (state && !(view && view.game_over) && !confirm('Abandon this civilization and start a new one?')) return;
+  stopAuto(); $('log').innerHTML = ''; logLines = [];
+  await act({action: 'new'}, true);
+}
+$('btnNew').addEventListener('click', newGame);
+$('ovNew').addEventListener('click', newGame);
+
+for (const k of ['comfort', 'research', 'conquest']) {
+  const el = $('sl-' + k);
+  el.addEventListener('input', () => {
+    const others = ['comfort', 'research', 'conquest'].filter((x) => x !== k).reduce((s, x) => s + Number($('sl-' + x).value), 0);
+    if (Number(el.value) > 100 - others) el.value = 100 - others;
+    $('lb-' + k).textContent = el.value + '%';
+    $('lb-reserve').textContent = (100 - others - Number(el.value)) + '%';
+  });
+  el.addEventListener('change', () => act({
+    action: 'allocate', comfort: Number($('sl-comfort').value), research: Number($('sl-research').value), conquest: Number($('sl-conquest').value),
+  }, true));
+}
+
+// ---- boot ----
+(async function init() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { saved = null; }
+  if (saved) {
+    state = saved;
+    const res = await act({action: 'load'}, true);
+    if (res) { addLog('Save restored. Welcome back, Architect.'); return; }
+    state = null;
+  }
+  await act({action: 'new'}, true);
+  addLog('A new civilization stirs. Master fire, keep your people together, and outrun your rivals.');
+})();
+</script>
+</body>
+</html>

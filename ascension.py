@@ -23,6 +23,7 @@ Pure standard library. Python 3.8+.
 from __future__ import annotations
 
 import argparse
+import math
 import random
 import sys
 from dataclasses import dataclass, field
@@ -38,6 +39,8 @@ STARTING_WPS = 10.0          # baseline civilization output before any tech
 MAX_BATCH_TICKS = 100        # cap for "1 N" batch stepping in the CLI
 CONQUEST_BONUS_CAP = 1.0     # conquest can add at most +100% WPS
 OVERREACH_LIMIT = 55         # research% + conquest% above this hurts Cohesion
+RIVAL_BASE_GROWTH = 0.047    # per-tick compound WPS growth of an IQ-100 rival
+TECH_COST_FACTORS = [45, 180, 360, 540, 720, 540]   # cost = wps_bonus * factor[tier]
 UNIT_LABELS = ["W", "kW", "MW", "GW", "TW", "PW", "EW", "ZW", "YW"]
 
 
@@ -299,26 +302,27 @@ class TechTree:
 
 
 def build_tech_tree() -> TechTree:
-    return TechTree([
-        TechNode("fire", "Primitive Fire",
-                 "Controlled combustion. The first spark of a civilization.",
-                 cost=100.0, wps_bonus=30.0, tier=0),
-        TechNode("fusion", "Fusion Reactors",
-                 "Bottled stars power the whole planet.",
-                 cost=9_000.0, wps_bonus=1_200.0, tier=1, prerequisites=["fire"]),
-        TechNode("dyson", "Dyson Grid Blueprint",
-                 "Swarm collectors harvest a star's entire output.",
-                 cost=1_500_000.0, wps_bonus=150_000.0, tier=2, prerequisites=["fusion"]),
-        TechNode("blackhole", "Black Hole Tap",
-                 "Feed on accretion disks and spin-down energy.",
-                 cost=180_000_000.0, wps_bonus=15_000_000.0, tier=3, prerequisites=["dyson"]),
-        TechNode("splicing", "Dimensional Splicing",
-                 "Stitch pockets of spacetime into one energy loop.",
-                 cost=18_000_000_000.0, wps_bonus=1_500_000_000.0, tier=4, prerequisites=["blackhole"]),
-        TechNode("lattice", "Multiversal Lattice",
-                 "Draw power from neighboring realities.",
-                 cost=1_800_000_000_000.0, wps_bonus=300_000_000_000.0, tier=5, prerequisites=["splicing"]),
-    ])
+    # (key, name, description, tier, wps_bonus, prerequisite)
+    spec = [
+        ("fire", "Primitive Fire", "Controlled combustion. The first spark of a civilization.", 0, 30.0, None),
+        ("steam", "Steam & Coal", "Industry wakes up and burns the world's forests.", 0, 120.0, "fire"),
+        ("grid", "Planetary Power Grid", "One continuous network wraps the globe.", 0, 600.0, "steam"),
+        ("fusion", "Fusion Reactors", "Bottled stars power the whole planet.", 1, 3_000.0, "grid"),
+        ("orbital", "Orbital Solar Arrays", "Mirrors in orbit beam sunlight home.", 1, 20_000.0, "fusion"),
+        ("dyson", "Dyson Grid Blueprint", "Swarm collectors harvest a star's entire output.", 2, 150_000.0, "orbital"),
+        ("swarm", "Dyson Swarm Expansion", "Billions of collectors dim the sun to a dull ember.", 2, 1_000_000.0, "dyson"),
+        ("blackhole", "Black Hole Tap", "Feed on accretion disks and spin-down energy.", 3, 15_000_000.0, "swarm"),
+        ("quasar", "Quasar Harvesting", "Ride a galactic core's jets like a power line.", 3, 100_000_000.0, "blackhole"),
+        ("splicing", "Dimensional Splicing", "Stitch pockets of spacetime into one energy loop.", 4, 1_500_000_000.0, "quasar"),
+        ("brane", "Brane Siphon", "Tap the vacuum between universes.", 4, 10_000_000_000.0, "splicing"),
+        ("lattice", "Multiversal Lattice", "Draw power from neighboring realities.", 5, 300_000_000_000.0, "brane"),
+    ]
+    nodes: List[TechNode] = []
+    for key, name, desc, tier, bonus, prereq in spec:
+        cost = 100.0 if key == "fire" else bonus * TECH_COST_FACTORS[tier]
+        nodes.append(TechNode(key, name, desc, cost=cost, wps_bonus=bonus, tier=tier,
+                              prerequisites=[prereq] if prereq else []))
+    return TechTree(nodes)
 
 
 # --------------------------------------------------------------------------- #
@@ -374,6 +378,8 @@ def build_achievements() -> AchievementManager:
                     lambda g: g.highest_tier >= 4),
         Achievement("t5", "Multiversal Mastery", "Reach Tier 5.", 2.50,
                     lambda g: g.highest_tier >= 5),
+        Achievement("trailblazer", "Trailblazer", "Be the first civilization to reach Tier 3.", 1.25,
+                    lambda g: g.highest_tier >= 3 and all(r.highest_tier < 3 for r in g.rivals)),
         Achievement("harmony", "Harmonious Society", "Hold Cohesion >= 80% for 15 ticks.", 1.20,
                     lambda g: g.population.high_cohesion_streak >= 15),
         Achievement("peace", "Peacemaker", "Resolve 3 faction crises.", 1.15,
@@ -384,12 +390,104 @@ def build_achievements() -> AchievementManager:
 
 
 # --------------------------------------------------------------------------- #
+# Rival AI civilizations
+# --------------------------------------------------------------------------- #
+
+IQ_LABELS: List[Tuple[float, str]] = [(85.0, "Dim"), (100.0, "Average"), (115.0, "Sharp"), (135.0, "Brilliant")]
+
+
+def iq_label(iq: float) -> str:
+    for limit, label in IQ_LABELS:
+        if iq < limit:
+            return label
+    return "Genius"
+
+
+class RivalCiv:
+    """An AI civilization racing you to Tier 5.
+
+    Its collective IQ evolves over time (steady learning plus rare breakthroughs).
+    IQ drives how fast it compounds output, and how rarely it blunders.
+    """
+
+    def __init__(self, name: str, iq: float) -> None:
+        self.name = name
+        self.iq = iq
+        self.start_iq = iq
+        self.wps = STARTING_WPS
+        self.highest_tier = 0
+        self.blunders = 0
+        self.ticks = 0
+        self.iq_milestone = int(iq // 10)
+
+    @property
+    def tier(self) -> TierInfo:
+        return tier_for_wps(self.wps)
+
+    @property
+    def label(self) -> str:
+        return iq_label(self.iq)
+
+    @property
+    def progress(self) -> float:
+        """0-1 progress toward Tier 5, on a log scale of output."""
+        return clamp((math.log10(max(self.wps, 1.0)) - 1.0) / 10.0, 0.0, 1.0)
+
+    def tick(self, rng: random.Random) -> List[str]:
+        messages: List[str] = []
+        self.ticks += 1
+
+        # Development: steady learning, faster at higher tiers, plus rare insights.
+        learn = 0.06 + 0.02 * self.tier.level
+        if rng.random() < 0.008:
+            learn += 3.0
+        self.iq = clamp(self.iq + learn * rng.uniform(0.5, 1.5), 40.0, 200.0)
+
+        # Growth scales with IQ; smart civs compound faster.
+        quality = (self.iq / 100.0) ** 1.5 * rng.uniform(0.6, 1.4)
+        self.wps = min(self.wps * (1.0 + RIVAL_BASE_GROWTH * quality), 1e14)
+
+        # Low-IQ civs blunder more often.
+        if rng.random() < (1.0 - self.iq / 200.0) * 0.05:
+            self.wps *= 0.7
+            self.blunders += 1
+            messages.append(f"{self.name} (IQ {self.iq:.0f}) blunders and loses 30% of its output.")
+
+        if self.tier.level > self.highest_tier:
+            self.highest_tier = self.tier.level
+            messages.append(f">> {self.name} ascends to Tier {self.highest_tier}: {self.tier.name}.")
+
+        milestone = int(self.iq // 10)
+        if milestone > self.iq_milestone:
+            self.iq_milestone = milestone
+            if milestone >= 12:
+                messages.append(f"{self.name} breakthrough: collective IQ passes {milestone * 10}.")
+        return messages
+
+
+RIVAL_ROSTER: List[Tuple[str, float]] = [
+    ("Vael Collective", 128.0),
+    ("Orion Hegemony", 104.0),
+    ("Nyx Syndicate", 92.0),
+    ("Aurelian Concord", 72.0),
+]
+
+
+def build_rivals(rng: random.Random) -> List[RivalCiv]:
+    """Each run jitters the roster's starting IQs so no two games match."""
+    return [RivalCiv(name, clamp(iq + rng.uniform(-8.0, 8.0), 50.0, 150.0)) for name, iq in RIVAL_ROSTER]
+
+
+# --------------------------------------------------------------------------- #
 # Game engine
 # --------------------------------------------------------------------------- #
 
 class Game:
     def __init__(self, seed: Optional[int] = None) -> None:
-        self.rng = random.Random(seed)
+        self.seed = seed if seed is not None else random.SystemRandom().randrange(1, 10**9)
+        self.rng = random.Random(self.seed)
+        self.rivals = build_rivals(self.rng)
+        self.defeated_by: Optional[str] = None
         self.tick_count = 0
         self.watts = 0.0
         self.research_fund = 0.0
@@ -456,8 +554,12 @@ class Game:
     # ---- simulation ------------------------------------------------------- #
 
     def step_tick(self) -> List[str]:
+        if self.game_over:
+            return ["The simulation has ended."]
         messages: List[str] = []
         self.tick_count += 1
+        # Per-tick reseed keeps runs reproducible and lets a stateless server resume anywhere.
+        self.rng = random.Random(self.seed * 100003 + self.tick_count)
 
         # 1. Economy: gross output split by allocation.
         gross = self.wps * TICK_SECONDS
@@ -485,6 +587,33 @@ class Game:
         if self.tier.level > self.highest_tier:
             self.highest_tier = self.tier.level
             messages.extend(self.achievements.check(self))
+
+        # 5. Rivals develop, spy on you, and race for Tier 5.
+        for rival in self.rivals:
+            messages.extend(rival.tick(self.rng))
+        messages.extend(self._rival_espionage())
+        if self.defeated_by is None and not self.victory():
+            for rival in self.rivals:
+                if rival.highest_tier >= 5:
+                    self.defeated_by = rival.name
+                    messages.append(f"### DEFEAT: {rival.name} reached Multiversal Mastery first. ###")
+                    break
+        return messages
+
+    def _rival_espionage(self) -> List[str]:
+        """Smart rivals steal from disunited civilizations (low Cohesion = easy recruits)."""
+        messages: List[str] = []
+        for rival in self.rivals:
+            if self.rng.random() >= 0.04 * (rival.iq / 100.0):
+                continue
+            success = rival.iq / 200.0 * (1.0 - self.population.cohesion / 150.0)
+            if self.rng.random() < success and self.watts > 0.0:
+                stolen = self.watts * self.rng.uniform(0.03, 0.06)
+                self.watts -= stolen
+                rival.wps *= 1.02
+                messages.append(f"! ESPIONAGE: {rival.name} (IQ {rival.iq:.0f}) steals {fmt_watts(stolen)} and blueprints.")
+            else:
+                messages.append(f"{rival.name} espionage attempt foiled by a loyal population.")
         return messages
 
     def _faction_events(self) -> List[str]:
@@ -585,6 +714,148 @@ class Game:
     def victory(self) -> bool:
         return self.highest_tier >= 5 and self.techtree.all_researched()
 
+    @property
+    def game_over(self) -> bool:
+        return self.victory() or self.defeated_by is not None
+
+    def refresh(self) -> List[str]:
+        """Re-evaluate tier and achievements after a player action."""
+        self.highest_tier = max(self.highest_tier, self.tier.level)
+        return self.achievements.check(self)
+
+    # ---- (de)serialization: lets a stateless server (Vercel) resume any game ---- #
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "seed": self.seed,
+            "tick": self.tick_count,
+            "watts": self.watts,
+            "research_fund": self.research_fund,
+            "conquest_bonus": self.conquest_bonus,
+            "highest_tier": self.highest_tier,
+            "crises_resolved": self.crises_resolved,
+            "defeated_by": self.defeated_by,
+            "allocation": {"comfort": self.allocation.comfort, "research": self.allocation.research,
+                           "conquest": self.allocation.conquest},
+            "population": {"free_will": self.population.free_will, "cohesion": self.population.cohesion,
+                           "streak": self.population.high_cohesion_streak},
+            "factions": {f.name: {"influence": f.influence, "hoard": f.hoard,
+                                  "strike_ticks": f.strike_ticks, "civil_war": f.civil_war}
+                         for f in self.factions},
+            "researched": [n.key for n in self.techtree.ordered() if n.researched],
+            "achievements": [a.key for a in self.achievements.achievements if a.unlocked],
+            "rivals": [{"name": r.name, "iq": r.iq, "start_iq": r.start_iq, "wps": r.wps,
+                        "highest_tier": r.highest_tier, "blunders": r.blunders, "ticks": r.ticks,
+                        "iq_milestone": r.iq_milestone} for r in self.rivals],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "Game":
+        """Rebuild a game from client-supplied state, clamping every field to a sane range."""
+
+        def num(value: object, default: float, low: float, high: float) -> float:
+            try:
+                number = float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return default
+            return clamp(number, low, high) if math.isfinite(number) else default
+
+        game = cls(int(num(data.get("seed"), 1, 1, 10**12)))
+        game.tick_count = int(num(data.get("tick"), 0, 0, 10**6))
+        game.watts = num(data.get("watts"), 0.0, 0.0, 1e30)
+        game.research_fund = num(data.get("research_fund"), 0.0, 0.0, 1e30)
+        game.conquest_bonus = num(data.get("conquest_bonus"), 0.0, 0.0, CONQUEST_BONUS_CAP)
+        game.highest_tier = int(num(data.get("highest_tier"), 0, 0, 5))
+        game.crises_resolved = int(num(data.get("crises_resolved"), 0, 0, 10**6))
+        defeated = data.get("defeated_by")
+        game.defeated_by = defeated if isinstance(defeated, str) and defeated in {r.name for r in game.rivals} else None
+
+        alloc = data.get("allocation") if isinstance(data.get("allocation"), dict) else {}
+        candidate = Allocation(int(num(alloc.get("comfort"), 30, 0, 100)),  # type: ignore[union-attr]
+                               int(num(alloc.get("research"), 30, 0, 100)),  # type: ignore[union-attr]
+                               int(num(alloc.get("conquest"), 10, 0, 100)))  # type: ignore[union-attr]
+        if candidate.is_valid():
+            game.allocation = candidate
+
+        pop = data.get("population") if isinstance(data.get("population"), dict) else {}
+        game.population.free_will = num(pop.get("free_will"), 50.0, 0.0, 100.0)  # type: ignore[union-attr]
+        game.population.cohesion = num(pop.get("cohesion"), 75.0, 0.0, 100.0)  # type: ignore[union-attr]
+        game.population.high_cohesion_streak = int(num(pop.get("streak"), 0, 0, 10**6))  # type: ignore[union-attr]
+
+        faction_data = data.get("factions") if isinstance(data.get("factions"), dict) else {}
+        for faction in game.factions:
+            saved = faction_data.get(faction.name)  # type: ignore[union-attr]
+            if isinstance(saved, dict):
+                faction.influence = num(saved.get("influence"), 10.0, 0.0, 100.0)
+                faction.hoard = num(saved.get("hoard"), 0.0, 0.0, 1e30)
+                faction.strike_ticks = int(num(saved.get("strike_ticks"), 0, 0, 50))
+                faction.civil_war = bool(saved.get("civil_war", False))
+
+        researched = data.get("researched")
+        if isinstance(researched, list):
+            for key in researched:
+                if isinstance(key, str) and key in game.techtree.nodes:
+                    game.techtree.nodes[key].researched = True
+        unlocked = data.get("achievements")
+        if isinstance(unlocked, list):
+            for ach in game.achievements.achievements:
+                ach.unlocked = ach.key in unlocked
+
+        rival_data = data.get("rivals")
+        if isinstance(rival_data, list):
+            saved_by_name = {r.get("name"): r for r in rival_data if isinstance(r, dict)}
+            for rival in game.rivals:
+                saved = saved_by_name.get(rival.name)
+                if saved:
+                    rival.iq = num(saved.get("iq"), rival.iq, 40.0, 200.0)
+                    rival.start_iq = num(saved.get("start_iq"), rival.start_iq, 40.0, 200.0)
+                    rival.wps = num(saved.get("wps"), STARTING_WPS, 1.0, 1e14)
+                    rival.highest_tier = int(num(saved.get("highest_tier"), 0, 0, 5))
+                    rival.blunders = int(num(saved.get("blunders"), 0, 0, 10**6))
+                    rival.ticks = int(num(saved.get("ticks"), 0, 0, 10**6))
+                    rival.iq_milestone = int(num(saved.get("iq_milestone"), int(rival.iq // 10), 0, 30))
+        return game
+
+    def to_view(self) -> Dict[str, object]:
+        """Everything a front end needs to render, with derived stats included."""
+        tier = self.tier
+        return {
+            "tick": self.tick_count,
+            "seconds": self.tick_count * TICK_SECONDS,
+            "watts": self.watts,
+            "research_fund": self.research_fund,
+            "wps": self.wps,
+            "potential_wps": self.potential_wps,
+            "raw_wps": self.raw_wps,
+            "multiplier": self.multiplier,
+            "penalty": self.penalty_modifier,
+            "tier": {"level": tier.level, "name": tier.name},
+            "highest_tier": self.highest_tier,
+            "next_tier": ({"level": TIERS[tier.level + 1].level, "name": TIERS[tier.level + 1].name,
+                           "threshold": TIERS[tier.level + 1].wps_threshold} if tier.level < 5 else None),
+            "cohesion": self.population.cohesion,
+            "free_will": self.population.free_will,
+            "required_comfort": Allocation.required_comfort(tier.level),
+            "allocation": {"comfort": self.allocation.comfort, "research": self.allocation.research,
+                           "conquest": self.allocation.conquest, "reserve": self.allocation.reserve},
+            "factions": [{"name": f.name, "description": f.description, "influence": f.influence,
+                          "status": f.status_text(), "active": f.active, "civil_war": f.civil_war,
+                          "cost": self.appease_cost(f)} for f in self.factions],
+            "techs": [{"key": n.key, "name": n.name, "description": n.description, "cost": n.cost,
+                       "wps_bonus": n.wps_bonus, "tier": n.tier, "researched": n.researched,
+                       "missing": [self.techtree.nodes[m].name for m in self.techtree.missing_prerequisites(n.key)],
+                       "affordable": (self.research_fund + self.watts) >= n.cost}
+                      for n in self.techtree.ordered()],
+            "achievements": [{"name": a.name, "description": a.description, "multiplier": a.multiplier,
+                              "unlocked": a.unlocked} for a in self.achievements.achievements],
+            "rivals": [{"name": r.name, "iq": r.iq, "start_iq": r.start_iq, "label": r.label,
+                        "tier": r.tier.level, "tier_name": r.tier.name, "wps": r.wps,
+                        "blunders": r.blunders, "progress": r.progress} for r in self.rivals],
+            "victory": self.victory(),
+            "defeated_by": self.defeated_by,
+            "game_over": self.game_over,
+        }
+
 
 # --------------------------------------------------------------------------- #
 # CLI
@@ -619,13 +890,25 @@ def render_telemetry(game: Game) -> None:
     for f in game.factions:
         flag = "ACTIVE" if f.active else "      "
         print(f"   {flag} {f.name:<20} influence {f.influence:5.1f}  [{f.status_text()}]")
+    print(" Rivals:")
+    for r in game.rivals:
+        print(f"   {r.name:<20} Tier {r.tier.level}  {fmt_watts(r.wps, True):>14}  IQ {r.iq:5.1f} ({r.label})")
     print("-" * 64)
 
 
 def print_menu() -> None:
     print(" 1: Step Tick  (e.g. '1 10' to step 10)   2: Research Tech")
     print(" 3: Address Faction Unrest                 4: Exit")
-    print(" 5: Adjust Budget Allocation               ")
+    print(" 5: Adjust Budget Allocation               6: Intel Report (rivals)")
+
+
+def menu_intel(game: Game) -> None:
+    print("\n INTEL REPORT - rival civilizations")
+    for r in sorted(game.rivals, key=lambda x: x.wps, reverse=True):
+        print(f"  {r.name:<20} Tier {r.tier.level} {r.tier.name}")
+        print(f"     Output {fmt_watts(r.wps, True)}   Race to Tier 5 {bar(r.progress * 100, 20)} {r.progress * 100:4.0f}%")
+        print(f"     IQ {r.iq:5.1f} ({r.label}), started {r.start_iq:5.1f} ({r.iq - r.start_iq:+.1f})   blunders {r.blunders}")
+    print("  Smart rivals compound faster, blunder less, and steal more from a disunited civilization.")
 
 
 def safe_input(prompt: str) -> Optional[str]:
@@ -724,12 +1007,15 @@ def run_cli(seed: Optional[int] = None) -> int:
             for _ in range(count):
                 for line in game.step_tick():
                     print(f" [tick {game.tick_count}] {line}")
-                if game.victory():
+                if game.game_over:
                     break
             render_telemetry(game)
             if game.victory():
                 print("\n *** TYPE OMEGA ACHIEVED: Multiversal Mastery with every technology unlocked. ***")
                 print(f" Your civilization ascended in {game.tick_count} ticks. Final multiplier x{game.multiplier:.2f}.")
+                return 0
+            if game.defeated_by:
+                print(f"\n *** DEFEAT: {game.defeated_by} beat you to Multiversal Mastery at tick {game.tick_count}. ***")
                 return 0
         elif choice == "2":
             menu_research(game)
@@ -743,8 +1029,10 @@ def run_cli(seed: Optional[int] = None) -> int:
         elif choice == "5":
             menu_allocation(game)
             render_telemetry(game)
+        elif choice == "6":
+            menu_intel(game)
         else:
-            print(" Unknown option. Choose 1-5.")
+            print(" Unknown option. Choose 1-6.")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
