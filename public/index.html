@@ -80,6 +80,14 @@
   #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #14213d; border: 1px solid var(--accent);
            padding: 9px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; max-width: 90vw; }
   #toast.show { opacity: 1; } #toast.err { border-color: var(--bad); }
+  #setup { position: fixed; inset: 0; background: rgba(4,7,13,.82); display: none; align-items: center; justify-content: center; z-index: 31; padding: 16px; }
+  #setup.show { display: flex; }
+  #setup .card { background: var(--panel); border: 1px solid var(--accent); border-radius: 16px; padding: 24px 28px; max-width: 480px; width: 100%; max-height: 92vh; overflow: auto; }
+  #setup h3 { font-size: 22px; margin: 0 0 12px; }
+  #setup label.opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+  #setup label.opt.on { border-color: var(--accent); background: rgba(76,201,240,.08); }
+  #setup label.opt b { display: block; }
+  #setup input[type=text] { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; margin: 6px 0 12px; }
   #overlay { position: fixed; inset: 0; background: rgba(4,7,13,.82); display: none; align-items: center; justify-content: center; z-index: 30; }
   #overlay.show { display: flex; }
   #overlay .card { background: var(--panel); border: 1px solid var(--accent); border-radius: 16px; padding: 28px 34px; text-align: center; max-width: 440px; }
@@ -176,6 +184,16 @@
 </main>
 
 <div id="toast"></div>
+<div id="setup"><div class="card">
+  <h3>New civilization</h3>
+  <div id="diffList"></div>
+  <label class="opt"><input type="checkbox" id="optFog" checked><span><b>Fog of war</b><span class="meta">Rivals stay hidden until you build sensors. Off = you see everyone (-20% score).</span></span></label>
+  <label class="opt"><input type="checkbox" id="optAttacks" checked><span><b>Rival attacks</b><span class="meta">Espionage, cyber attacks and blockades. Off = peaceful sandbox (-30% score).</span></span></label>
+  <div class="meta">Seed (optional, same seed = same galaxy)</div>
+  <input type="text" id="optSeed" placeholder="blank = random" inputmode="numeric" maxlength="9">
+  <div id="setupWarn" class="meta" style="margin-bottom:10px"></div>
+  <div class="row"><button class="primary grow" id="setupStart">Start</button><button id="setupCancel">Cancel</button></div>
+</div></div>
 <div id="overlay"><div class="card"><h3 id="ovTitle"></h3><p id="ovText" class="meta"></p><button class="primary" id="ovNew">New game</button></div></div>
 
 <script>
@@ -251,7 +269,8 @@ function render() {
   if (worldsRef) worldsRef.update(v, state.seed);
   if (galaxy) galaxy.update(v, state.seed);
   if (globe) globe.update(v, state.seed);
-  $('seedTag').textContent = 'seed ' + state.seed;
+  const st = v.settings;
+  $('seedTag').textContent = 'seed ' + state.seed + ' · ' + st.difficulty_name + (st.fog ? '' : ' · no fog') + (st.attacks ? '' : ' · no attacks');
 
   const lo = Math.log10(Math.max(TIER_T[v.tier.level], 1)), hi = v.next_tier ? Math.log10(v.next_tier.threshold) : lo + 1;
   const tierFrac = v.next_tier ? Math.max(0, Math.min(1, (Math.log10(Math.max(v.wps, 1)) - lo) / (hi - lo))) : 1;
@@ -344,7 +363,8 @@ function render() {
   if (v.game_over) {
     $('ovTitle').textContent = 'TYPE OMEGA ACHIEVED';
     $('ovText').textContent = 'Multiversal Mastery with every technology unlocked in ' + v.tick + ' ticks (x' + v.multiplier.toFixed(2) + ' multiplier). ' +
-      (v.victory_rank === 1 ? 'You ascended before anyone else.' : 'Ascension #' + v.victory_rank + ' in the galaxy.');
+      (v.victory_rank === 1 ? 'You ascended before anyone else.' : 'Ascension #' + v.victory_rank + ' in the galaxy.') +
+      ' Score ' + v.score.toLocaleString() + recordBest(v.settings.difficulty, v.score);
     ov.classList.add('show'); stopAuto();
   } else {
     ov.classList.remove('show');
@@ -379,13 +399,57 @@ document.addEventListener('click', (e) => {
   else if (b.dataset.expedition) act({action: 'expedition', target: b.dataset.expedition});
 });
 $('btnAuto').addEventListener('click', () => { auto ? stopAuto() : startAuto(); });
-async function newGame() {
-  if (state && !(view && view.game_over) && !confirm('Abandon this civilization and start a new one?')) return;
-  stopAuto(); $('log').innerHTML = ''; logLines = [];
-  await act({action: 'new'}, true);
+const FALLBACK_DIFFS = [
+  {key: 'story', name: 'Story', blurb: 'Relaxed. Slow rivals, rare attacks, cheap tech and expeditions.'},
+  {key: 'standard', name: 'Standard', blurb: 'The intended game.'},
+  {key: 'hard', name: 'Hard', blurb: 'Sharper rivals, more attacks, pricier tech and trips.'},
+  {key: 'nightmare', name: 'Nightmare', blurb: 'Genius rivals that spam attacks. Your people riot easily. Good luck.'},
+];
+const PREF_KEY = 'ascension-type-omega-prefs-v1', BEST_KEY = 'ascension-type-omega-best-v1';
+function readJson(k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } }
+function writeJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } }
+function recordBest(diff, score) {
+  const best = readJson(BEST_KEY, {});
+  const prev = best[diff] || 0;
+  if (score > prev) { best[diff] = score; writeJson(BEST_KEY, best); return prev ? ' (new best!)' : ' (first win on this difficulty)'; }
+  return ' (best ' + prev.toLocaleString() + ')';
 }
-$('btnNew').addEventListener('click', newGame);
-$('ovNew').addEventListener('click', newGame);
+let diffs = FALLBACK_DIFFS, chosenDiff = 'standard';
+function renderDiffs() {
+  const best = readJson(BEST_KEY, {});
+  $('diffList').innerHTML = diffs.map((d) =>
+    '<label class="opt' + (d.key === chosenDiff ? ' on' : '') + '"><input type="radio" name="diff" value="' + esc(d.key) + '"' + (d.key === chosenDiff ? ' checked' : '') + '>' +
+    '<span><b>' + esc(d.name) + (best[d.key] ? ' <span class="tag good">best ' + best[d.key].toLocaleString() + '</span>' : '') + '</b><span class="meta">' + esc(d.blurb) + '</span></span></label>').join('');
+}
+async function openSetup() {
+  const prefs = readJson(PREF_KEY, {});
+  chosenDiff = prefs.difficulty || 'standard';
+  $('optFog').checked = prefs.fog !== false; $('optAttacks').checked = prefs.attacks !== false;
+  $('optSeed').value = '';
+  const running = state && !(view && view.game_over);
+  $('setupWarn').textContent = running ? 'Your current civilization will be abandoned.' : '';
+  renderDiffs();
+  $('setup').classList.add('show');
+  try {
+    const r = await fetch('/api/game'); const j = await r.json();
+    if (j.difficulties && j.difficulties.length) { diffs = j.difficulties; renderDiffs(); }
+  } catch (e) { /* keep fallback */ }
+}
+$('diffList').addEventListener('change', (e) => { if (e.target.name === 'diff') { chosenDiff = e.target.value; renderDiffs(); } });
+$('setupCancel').addEventListener('click', () => $('setup').classList.remove('show'));
+$('setupStart').addEventListener('click', async () => {
+  const fog = $('optFog').checked, attacks = $('optAttacks').checked;
+  const seedNum = parseInt($('optSeed').value, 10);
+  writeJson(PREF_KEY, {difficulty: chosenDiff, fog: fog, attacks: attacks});
+  $('setup').classList.remove('show');
+  stopAuto(); $('log').innerHTML = ''; logLines = [];
+  const body = {action: 'new', difficulty: chosenDiff, fog: fog, attacks: attacks};
+  if (seedNum > 0) body.seed = seedNum;
+  await act(body, true);
+  addLog('A new civilization stirs. Master fire, keep your people together, and outrun your rivals.');
+});
+$('btnNew').addEventListener('click', openSetup);
+$('ovNew').addEventListener('click', openSetup);
 
 for (const k of ['comfort', 'research', 'conquest']) {
   const el = $('sl-' + k);

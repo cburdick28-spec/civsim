@@ -42,6 +42,23 @@ CONQUEST_BONUS_CAP = 1.0     # conquest can add at most +100% WPS
 OVERREACH_LIMIT = 55         # research% + conquest% above this hurts Cohesion
 RIVAL_BASE_GROWTH = 0.047    # per-tick compound WPS growth of an IQ-100 rival
 TECH_COST_FACTORS = [150, 600, 1200, 1800, 2400, 1800]   # cost = wps_bonus * factor[tier]
+# Difficulty presets. Every number is a multiplier on the standard game (1.0), except *_add.
+DIFFICULTIES: Dict[str, Dict[str, object]] = {
+    "story": {"name": "Story", "blurb": "Relaxed. Slow rivals, rare attacks, cheap tech and expeditions.",
+              "rival_growth": 0.75, "attack": 0.5, "tech_cost": 0.8, "unrest": 0.7,
+              "sensor_cost": 0.6, "expedition_cost": 0.6, "expedition_odds_add": 0.15, "score": 0.6},
+    "standard": {"name": "Standard", "blurb": "The intended game.",
+                 "rival_growth": 1.0, "attack": 1.0, "tech_cost": 1.0, "unrest": 1.0,
+                 "sensor_cost": 1.0, "expedition_cost": 1.0, "expedition_odds_add": 0.0, "score": 1.0},
+    "hard": {"name": "Hard", "blurb": "Sharper rivals, more attacks, pricier tech and trips.",
+             "rival_growth": 1.12, "attack": 1.5, "tech_cost": 1.15, "unrest": 1.2,
+             "sensor_cost": 1.3, "expedition_cost": 1.4, "expedition_odds_add": -0.05, "score": 1.5},
+    "nightmare": {"name": "Nightmare", "blurb": "Genius rivals that spam attacks. Your people riot easily. Good luck.",
+                  "rival_growth": 1.25, "attack": 2.2, "tech_cost": 1.3, "unrest": 1.4,
+                  "sensor_cost": 1.6, "expedition_cost": 2.0, "expedition_odds_add": -0.10, "score": 2.5},
+}
+DEFAULT_DIFFICULTY = "standard"
+
 # Fog of war: rivals are invisible until you build sensors; reaching their worlds is a long shot.
 SENSOR_SPECS = [   # (name, required tech, cost in ticks of potential output, what it does)
     ("Deep-Space Array", "grid", 6.0, "Detects rival civilizations: names, specialties, tiers and rough size."),
@@ -499,7 +516,7 @@ class RivalCiv:
         """0-1 progress toward Tier 5, on a log scale of output."""
         return clamp((math.log10(max(self.wps, 1.0)) - 1.0) / 10.0, 0.0, 1.0)
 
-    def tick(self, rng: random.Random) -> List[str]:
+    def tick(self, rng: random.Random, growth_scale: float = 1.0) -> List[str]:
         messages: List[str] = []
         if self.ascended:
             return messages          # transcended: no more growth, no more attacks
@@ -513,7 +530,7 @@ class RivalCiv:
 
         # Growth scales with IQ and specialty; smart civs compound faster.
         quality = (self.iq / 100.0) ** 1.5 * rng.uniform(0.6, 1.4)
-        self.wps = min(self.wps * (1.0 + RIVAL_BASE_GROWTH * self.growth_mult * quality), 1e14)
+        self.wps = min(self.wps * (1.0 + RIVAL_BASE_GROWTH * self.growth_mult * growth_scale * quality), 1e14)
 
         # Low-IQ civs blunder more often.
         if rng.random() < (1.0 - self.iq / 200.0) * 0.05 * self.blunder_mult:
@@ -562,8 +579,12 @@ def build_rivals(rng: random.Random) -> List[RivalCiv]:
 # --------------------------------------------------------------------------- #
 
 class Game:
-    def __init__(self, seed: Optional[int] = None) -> None:
+    def __init__(self, seed: Optional[int] = None, difficulty: str = DEFAULT_DIFFICULTY,
+                 fog: bool = True, attacks: bool = True) -> None:
         self.seed = seed if seed is not None else random.SystemRandom().randrange(1, 10**9)
+        self.difficulty = difficulty if difficulty in DIFFICULTIES else DEFAULT_DIFFICULTY
+        self.fog = bool(fog)
+        self.attacks = bool(attacks)
         self.rng = random.Random(self.seed)
         self.rivals = build_rivals(self.rng)
         for index, rival in enumerate(self.rivals):   # fixed per seed, independent of the main RNG
@@ -588,6 +609,10 @@ class Game:
     # ---- derived stats ---------------------------------------------------- #
 
     @property
+    def diff(self) -> Dict[str, object]:
+        return DIFFICULTIES[self.difficulty]
+
+    @property
     def raw_wps(self) -> float:
         return STARTING_WPS + self.techtree.total_wps_bonus()
 
@@ -608,7 +633,7 @@ class Game:
         return 1.0 + 0.10 * (self.level("computation") - 1.0)
 
     def tech_cost(self, node: TechNode) -> float:
-        return node.cost / (1.0 + 0.05 * (self.level("fabrication") - 1.0))
+        return node.cost * float(self.diff["tech_cost"]) / (1.0 + 0.05 * (self.level("fabrication") - 1.0))
 
     def comfort_relief(self) -> int:
         return min(10, int(self.level("biosphere") - 1.0))
@@ -670,7 +695,7 @@ class Game:
                 drag += 1.5
             if f.civil_war:
                 drag += 4.0
-        return drag
+        return drag * float(self.diff["unrest"])
 
     # ---- simulation ------------------------------------------------------- #
 
@@ -713,7 +738,7 @@ class Game:
 
         # 5. Rivals develop, spy on you, and race for Tier 5.
         for rival in self.rivals:
-            for line in rival.tick(self.rng):
+            for line in rival.tick(self.rng, float(self.diff["rival_growth"])):
                 # Rivals you cannot see do their growing and blundering in private.
                 if self.intel_level(rival) >= 1 or "Multiversal" in line:
                     messages.append(line)
@@ -725,7 +750,7 @@ class Game:
 
     def intel_level(self, rival: RivalCiv) -> int:
         """0 = unknown, 1 = detected, 2 = full intel (Quantum Lens or an expedition reached them)."""
-        if rival.name in self.contacts:
+        if not self.fog or rival.name in self.contacts:
             return 2
         return self.sensors
 
@@ -756,7 +781,9 @@ class Game:
                     rival.wps *= 1.01
                     messages.append(f"{rival.name} trade pact: shared harvests give you +{fmt_watts(gift)}.")
                 continue
-            if self.rng.random() >= 0.04 * (rival.iq / 100.0) * rival.aggression * (0.3 if reached else 1.0):
+            if not self.attacks:
+                continue
+            if self.rng.random() >= 0.04 * (rival.iq / 100.0) * rival.aggression * float(self.diff["attack"]) * (0.3 if reached else 1.0):
                 continue
             success = rival.iq / 200.0 * (1.0 - self.population.cohesion / 150.0) * defense
             if self.rng.random() >= success:
@@ -895,7 +922,7 @@ class Game:
     # ---- sensors & expeditions ---------------------------------------------- #
 
     def sensor_cost(self, level: int) -> float:
-        return max(100.0, self.potential_wps * TICK_SECONDS * SENSOR_SPECS[level][2])
+        return max(100.0, self.potential_wps * TICK_SECONDS * SENSOR_SPECS[level][2] * float(self.diff["sensor_cost"]))
 
     def sensor_block_reason(self) -> str:
         if self.sensors >= len(SENSOR_SPECS):
@@ -921,17 +948,18 @@ class Game:
         return next((r for r in self.rivals if r.name == name), None)
 
     def expedition_cost(self, rival: RivalCiv) -> float:
-        return max(500.0, self.potential_wps * TICK_SECONDS * EXPEDITION_COST_TICKS * rival.distance)
+        return max(500.0, self.potential_wps * TICK_SECONDS * EXPEDITION_COST_TICKS * rival.distance * float(self.diff["expedition_cost"]))
 
     def expedition_travel(self, rival: RivalCiv) -> int:
         return int(round(EXPEDITION_TRAVEL_TICKS * rival.distance))
 
     def expedition_odds(self) -> float:
-        odds = 0.30 + 0.06 * max(0, self.tier.level - EXPEDITION_MIN_TIER) + (0.10 if self.sensors >= 2 else 0.0)
+        odds = (0.30 + 0.06 * max(0, self.tier.level - EXPEDITION_MIN_TIER) + (0.10 if self.sensors >= 2 else 0.0)
+                + float(self.diff["expedition_odds_add"]))
         return clamp(odds, 0.05, 0.65)
 
     def expedition_block_reason(self, rival: RivalCiv) -> str:
-        if self.sensors < 1:
+        if self.intel_level(rival) < 1:
             return "Build a Deep-Space Array first."
         if rival.name in self.contacts:
             return "Already reached."
@@ -976,6 +1004,15 @@ class Game:
         messages.extend(self.achievements.check(self))
         return messages
 
+    def score(self) -> int:
+        """Final score: faster, harder, and earlier-than-rivals all pay more."""
+        rank = 1 + sum(1 for r in self.rivals if r.ascended)
+        speed = 300.0 / max(self.tick_count, 100)
+        value = 10000.0 * float(self.diff["score"]) * speed * (0.85 ** (rank - 1))
+        value *= 1.0 if self.fog else 0.8
+        value *= 1.0 if self.attacks else 0.7
+        return int(round(value))
+
     def victory(self) -> bool:
         return self.highest_tier >= 5 and self.techtree.all_researched()
 
@@ -993,6 +1030,9 @@ class Game:
     def to_dict(self) -> Dict[str, object]:
         return {
             "seed": self.seed,
+            "difficulty": self.difficulty,
+            "fog": self.fog,
+            "attacks": self.attacks,
             "tick": self.tick_count,
             "watts": self.watts,
             "research_fund": self.research_fund,
@@ -1029,7 +1069,10 @@ class Game:
                 return default
             return clamp(number, low, high) if math.isfinite(number) else default
 
-        game = cls(int(num(data.get("seed"), 1, 1, 10**12)))
+        diff = data.get("difficulty")
+        game = cls(int(num(data.get("seed"), 1, 1, 10**12)),
+                   diff if isinstance(diff, str) else DEFAULT_DIFFICULTY,
+                   bool(data.get("fog", True)), bool(data.get("attacks", True)))
         game.tick_count = int(num(data.get("tick"), 0, 0, 10**6))
         game.watts = num(data.get("watts"), 0.0, 0.0, 1e30)
         game.research_fund = num(data.get("research_fund"), 0.0, 0.0, 1e30)
@@ -1173,6 +1216,8 @@ class Game:
             "expedition": self._expedition_view(),
             "victory": self.victory(),
             "victory_rank": 1 + sum(1 for r in self.rivals if r.ascended),
+            "settings": {"difficulty": self.difficulty, "difficulty_name": self.diff["name"], "fog": self.fog, "attacks": self.attacks},
+            "score": self.score() if self.victory() else None,
             "game_over": self.game_over,
         }
 
@@ -1365,10 +1410,12 @@ def menu_allocation(game: Game) -> None:
     print(f" {'OK' if ok else 'FAILED'}: {msg}")
 
 
-def run_cli(seed: Optional[int] = None) -> int:
-    game = Game(seed)
+def run_cli(seed: Optional[int] = None, difficulty: str = DEFAULT_DIFFICULTY,
+            fog: bool = True, attacks: bool = True) -> int:
+    game = Game(seed, difficulty, fog, attacks)
     print("\n  A S C E N S I O N :  T Y P E   O M E G A")
     print("  Climb from a campfire to a multiversal power. Keep your people together.")
+    print(f"  Difficulty: {game.diff['name']}" + ("" if fog else " | no fog") + ("" if attacks else " | no attacks"))
     render_telemetry(game)
 
     while True:
@@ -1395,6 +1442,7 @@ def run_cli(seed: Optional[int] = None) -> int:
             render_telemetry(game)
             if game.victory():
                 print("\n *** TYPE OMEGA ACHIEVED: Multiversal Mastery with every technology unlocked. ***")
+                print(f" Score: {game.score():,}")
                 print(f" Your civilization ascended in {game.tick_count} ticks, #{1 + sum(1 for r in game.rivals if r.ascended)} to do it. Final multiplier x{game.multiplier:.2f}.")
                 return 0
         elif choice == "2":
@@ -1424,8 +1472,11 @@ def run_cli(seed: Optional[int] = None) -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Ascension: Type Omega")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for reproducible runs")
+    parser.add_argument("--difficulty", choices=list(DIFFICULTIES), default=DEFAULT_DIFFICULTY)
+    parser.add_argument("--no-fog", action="store_true", help="rivals are visible from the start")
+    parser.add_argument("--no-attacks", action="store_true", help="rivals never attack you")
     args = parser.parse_args(argv)
-    return run_cli(args.seed)
+    return run_cli(args.seed, args.difficulty, not args.no_fog, not args.no_attacks)
 
 
 if __name__ == "__main__":

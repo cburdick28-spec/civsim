@@ -20,7 +20,7 @@ for _path in (_ROOT, os.getcwd()):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from ascension import MAX_BATCH_TICKS, Game  # noqa: E402
+from ascension import DEFAULT_DIFFICULTY, DIFFICULTIES, MAX_BATCH_TICKS, Game  # noqa: E402
 
 app = FastAPI(title="Ascension: Type Omega")
 
@@ -29,6 +29,9 @@ class ActionRequest(BaseModel):
     action: str
     state: Optional[Dict[str, Any]] = None
     seed: Optional[int] = None        # new
+    difficulty: Optional[str] = None  # new
+    fog: Optional[bool] = None        # new
+    attacks: Optional[bool] = None    # new
     count: Optional[int] = None       # step
     key: Optional[str] = None         # research / invest
     target: Optional[str] = None      # expedition (rival name)
@@ -45,7 +48,8 @@ def _respond(game: Game, ok: bool, message: str, log: List[str]) -> Dict[str, An
 def handle(req: ActionRequest) -> Dict[str, Any]:
     if req.action == "new":
         seed = req.seed if req.seed is not None and req.seed > 0 else None
-        game = Game(seed)
+        game = Game(seed, req.difficulty if req.difficulty in DIFFICULTIES else DEFAULT_DIFFICULTY,
+                    True if req.fog is None else req.fog, True if req.attacks is None else req.attacks)
         return _respond(game, True, "New civilization founded.", [])
 
     if req.state is None:
@@ -112,8 +116,11 @@ def handle(req: ActionRequest) -> Dict[str, Any]:
 
 
 @app.get("/api/game")
-def health() -> Dict[str, str]:
-    return {"status": "ok", "game": "Ascension: Type Omega"}
+def health() -> Dict[str, Any]:
+    return {"status": "ok", "game": "Ascension: Type Omega",
+            "difficulties": [{"key": k, "name": d["name"], "blurb": d["blurb"], "score": d["score"]}
+                             for k, d in DIFFICULTIES.items()],
+            "default_difficulty": DEFAULT_DIFFICULTY}
 
 
 @app.post("/api/game")
