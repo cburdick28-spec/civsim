@@ -36,7 +36,7 @@ python3 ascension.py --seed 7   # reproducible run
   - **Nyx Syndicate** (Espionage): attacks twice as often and steals more Watts, but grows slower.
   - **Aurelian Concord** (Biosphere): pacifist and rarely blunders; offers trade pacts that help you both.
 
-A near-perfect run takes roughly 270 ticks; the smartest rival finishes around 315, so sloppy play loses the race.
+A near-perfect run takes roughly 270 ticks. Rivals can out-race you to Tier 5, but that only costs you the "first ascension" bragging rights.
 
 ## Rebuilding the 3D bundle
 
