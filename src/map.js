@@ -78,7 +78,7 @@ export function assignOwners(galaxy, civs) {
   const p = galaxy.positions, n = p.length / 3;
   const owner = new Int8Array(n).fill(-1);
   const counts = new Array(civs.length).fill(0);
-  const radii = civs.map((c) => territoryRadius(c.progress));
+  const radii = civs.map((c) => (c.known >= 1 ? territoryRadius(c.progress) : 0));
   for (let i = 0; i < n; i++) {
     let best = -1, bestScore = Infinity;
     for (let c = 0; c < civs.length; c++) {
@@ -93,10 +93,15 @@ export function assignOwners(galaxy, civs) {
   return { owner, counts, radii };
 }
 
+/** Fog of war: rivals arrive pre-redacted from the server (known 0 = unseen, 1 = detected, 2 = full intel). */
 export function civsFromView(view) {
-  const list = [{ name: 'You', tier: view.tier.level, progress: view.progress, wps: view.wps }];
-  for (const r of view.rivals) list.push({ name: r.name, tier: r.tier, progress: r.progress, wps: r.wps });
-  return list.map((c) => ({ ...c, color: CIV_COLORS[c.name] || '#ffffff' }));
+  const colors = Object.values(CIV_COLORS);
+  const list = [{ name: 'You', tier: view.tier.level, progress: view.progress, wps: view.wps, known: 2, contact: true }];
+  for (const r of view.rivals) {
+    list.push({ name: r.name, tier: r.tier || 0, progress: r.progress || 0, wps: r.wps || 0,
+                known: r.known || 0, contact: !!r.contact, ascended: !!r.ascended });
+  }
+  return list.map((c, i) => ({ ...c, color: colors[i] || '#ffffff' }));
 }
 
 // ---------- WebGL map ----------
@@ -192,14 +197,17 @@ export function createGalaxyMap({ container, labelsEl, legendEl, worlds }) {
     const decor = new Group();
     decor.add(ring, dyson, disk, shell, lat1, lat2);
     if (world) decor.scale.setScalar(1.7);
+    // an unreached rival is only a glowing beacon; its planet appears once you have been there
+    const beacon = world ? new Mesh(new SphereGeometry(1.2, 16, 12), new MeshBasicMaterial({ color: col })) : null;
     group.add(star, halo, decor);
     if (atmos) group.add(atmos);
+    if (beacon) group.add(beacon);
 
     bubble.position.copy(group.position);
     boundary.position.copy(group.position);
     scene.add(bubble, boundary);
     bubble.scale.setScalar(1); boundary.scale.setScalar(1);
-    return { group, bubble, boundary, ring, dyson, disk, shell, lat1, lat2, planet, tex, world, radius: 9, targetRadius: 9, tier: 0, color: col };
+    return { group, bubble, boundary, ring, dyson, disk, shell, lat1, lat2, planet, atmos, beacon, decor, halo, tex, world, shown: false, radius: 9, targetRadius: 9, tier: 0, color: col };
   }
 
   function clearWorld() {
@@ -258,12 +266,20 @@ export function createGalaxyMap({ container, labelsEl, legendEl, worlds }) {
       const o = civObjs[i];
       o.targetRadius = radii[i];
       o.tier = civ.tier;
+      o.shown = civ.known >= 1;
+      o.group.visible = o.bubble.visible = o.boundary.visible = o.shown;
+      const reached = !o.world || civ.contact;
+      if (o.planet) {
+        o.planet.visible = o.atmos.visible = reached;
+        o.beacon.visible = !reached;
+        o.decor.scale.setScalar(reached ? 1.7 : 1);
+      }
       o.ring.visible = civ.tier >= 1;
       o.dyson.visible = civ.tier >= 2;
       o.disk.visible = civ.tier >= 3;
       o.shell.visible = civ.tier >= 4;
       o.lat1.visible = o.lat2.visible = civ.tier >= 5;
-      o.label.textContent = (o.world ? o.world.name + ' · ' : '') + civ.name + ' · T' + civ.tier;
+      o.label.textContent = (o.world && civ.contact ? o.world.name + ' · ' : '') + civ.name + ' · T' + civ.tier + (civ.contact ? '' : ' · unreached');
       o.label.style.color = civ.color;
       o.label.style.borderColor = civ.color;
     });
@@ -276,11 +292,17 @@ export function createGalaxyMap({ container, labelsEl, legendEl, worlds }) {
       row.dataset.idx = String(i);
       const sw = document.createElement('span');
       sw.className = 'sw';
-      sw.style.background = civ.color;
+      sw.style.background = civ.known >= 1 ? civ.color : '#556';
       const txt = document.createElement('span');
-      txt.textContent = (civObjs[i].world ? civObjs[i].world.name + ' (' + civ.name + ')' : civ.name) + ' — Tier ' + civ.tier + ' · ' + counts[i] + ' systems (' + (counts[i] / total * 100).toFixed(0) + '%)';
+      if (civ.known < 1) {
+        row.classList.add('locked');
+        txt.textContent = 'Unknown signal — undetected';
+      } else {
+        const nm = civObjs[i].world && civ.contact ? civObjs[i].world.name + ' (' + civ.name + ')' : civ.name;
+        txt.textContent = nm + ' — Tier ' + civ.tier + ' · ' + counts[i] + ' systems (' + (counts[i] / total * 100).toFixed(0) + '%)' + (civ.contact ? '' : ' · unreached');
+        row.addEventListener('click', () => focus(i));
+      }
       row.append(sw, txt);
-      row.addEventListener('click', () => focus(i));
       legendEl.appendChild(row);
     });
     return counts;
@@ -288,6 +310,7 @@ export function createGalaxyMap({ container, labelsEl, legendEl, worlds }) {
 
   function focus(i) {
     if (i < 0 || !galaxy) { desired.set(0, 0, 0); desiredDist = 200; return; }
+    if (civs[i] && civs[i].known < 1) return;
     const h = galaxy.homes[i];
     desired.set(h[0], h[1], h[2]);
     desiredDist = worlds ? 42 : 95;
@@ -411,7 +434,7 @@ export function createGalaxyMap({ container, labelsEl, legendEl, worlds }) {
     civObjs.forEach((o) => {
       if (!o.label) return;
       tmp.copy(o.group.position).project(camera);
-      const visible = tmp.z < 1;
+      const visible = tmp.z < 1 && o.shown;
       o.label.style.display = visible ? 'block' : 'none';
       o.label.style.left = ((tmp.x * 0.5 + 0.5) * w) + 'px';
       o.label.style.top = ((-tmp.y * 0.5 + 0.5) * h) + 'px';

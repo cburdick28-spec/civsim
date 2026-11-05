@@ -23,6 +23,7 @@ Pure standard library. Python 3.8+.
 from __future__ import annotations
 
 import argparse
+import re
 import math
 import random
 import sys
@@ -41,6 +42,15 @@ CONQUEST_BONUS_CAP = 1.0     # conquest can add at most +100% WPS
 OVERREACH_LIMIT = 55         # research% + conquest% above this hurts Cohesion
 RIVAL_BASE_GROWTH = 0.047    # per-tick compound WPS growth of an IQ-100 rival
 TECH_COST_FACTORS = [150, 600, 1200, 1800, 2400, 1800]   # cost = wps_bonus * factor[tier]
+# Fog of war: rivals are invisible until you build sensors; reaching their worlds is a long shot.
+SENSOR_SPECS = [   # (name, required tech, cost in ticks of potential output, what it does)
+    ("Deep-Space Array", "grid", 6.0, "Detects rival civilizations: names, specialties, tiers and rough size."),
+    ("Quantum Lens", "orbital", 20.0, "Full intel on every rival: exact output, IQ and traits. Better expedition odds."),
+]
+EXPEDITION_MIN_TIER = 3
+EXPEDITION_COST_TICKS = 20.0       # ticks of potential output, scaled by the rival's distance
+EXPEDITION_TRAVEL_TICKS = 25       # scaled by the rival's distance
+FIRST_CONTACT_RESEARCH_TICKS = 8.0
 TECH_INDUSTRY_BOOST = 1.5      # industry levels gained from researching a linked tech
 UNIT_LABELS = ["W", "kW", "MW", "GW", "TW", "PW", "EW", "ZW", "YW"]
 
@@ -385,6 +395,10 @@ def build_achievements() -> AchievementManager:
                     lambda g: g.population.high_cohesion_streak >= 15),
         Achievement("peace", "Peacemaker", "Resolve 3 faction crises.", 1.15,
                     lambda g: g.crises_resolved >= 3),
+        Achievement("first_contact", "First Contact", "Reach another civilization's world.", 1.15,
+                    lambda g: len(g.contacts) >= 1),
+        Achievement("neighbors", "Galactic Neighbor", "Reach the world of every rival.", 1.30,
+                    lambda g: len(g.contacts) >= len(g.rivals)),
         Achievement("polymath", "Polymath", "Research every technology.", 1.50,
                     lambda g: g.techtree.all_researched()),
     ])
@@ -465,6 +479,12 @@ class RivalCiv:
         self.blunders = 0
         self.ticks = 0
         self.iq_milestone = int(iq // 10)
+        self.distance = 1.0          # how hard this world is to reach (set by the Game)
+        self.ascended_tick = 0       # 0 = still racing
+
+    @property
+    def ascended(self) -> bool:
+        return self.highest_tier >= 5
 
     @property
     def tier(self) -> TierInfo:
@@ -481,6 +501,8 @@ class RivalCiv:
 
     def tick(self, rng: random.Random) -> List[str]:
         messages: List[str] = []
+        if self.ascended:
+            return messages          # transcended: no more growth, no more attacks
         self.ticks += 1
 
         # Development: steady learning, faster at higher tiers, plus rare insights.
@@ -502,6 +524,9 @@ class RivalCiv:
         if self.tier.level > self.highest_tier:
             self.highest_tier = self.tier.level
             messages.append(f">> {self.name} ascends to Tier {self.highest_tier}: {self.tier.name}.")
+            if self.highest_tier >= 5:
+                self.ascended_tick = self.ticks
+                messages.append(f"### {self.name} reached Multiversal Mastery and transcended. Their race is over; yours is not. ###")
 
         milestone = int(self.iq // 10)
         if milestone > self.iq_milestone:
@@ -541,7 +566,12 @@ class Game:
         self.seed = seed if seed is not None else random.SystemRandom().randrange(1, 10**9)
         self.rng = random.Random(self.seed)
         self.rivals = build_rivals(self.rng)
-        self.defeated_by: Optional[str] = None
+        for index, rival in enumerate(self.rivals):   # fixed per seed, independent of the main RNG
+            rival.distance = random.Random(self.seed * 31 + index).uniform(0.8, 1.6)
+        self.sensors = 0
+        self.contacts: List[str] = []
+        self.expedition: Optional[Dict[str, object]] = None
+        self.expedition_failures = 0
         self.industries = build_industries()
         self.tick_count = 0
         self.watts = 0.0
@@ -683,29 +713,50 @@ class Game:
 
         # 5. Rivals develop, spy on you, and race for Tier 5.
         for rival in self.rivals:
-            messages.extend(rival.tick(self.rng))
+            for line in rival.tick(self.rng):
+                # Rivals you cannot see do their growing and blundering in private.
+                if self.intel_level(rival) >= 1 or "Multiversal" in line:
+                    messages.append(line)
         messages.extend(self._rival_actions())
-        if self.defeated_by is None and not self.victory():
+        messages.extend(self._expedition_tick())
+        return self._mask(messages)
+
+    # ---- fog of war ---------------------------------------------------------- #
+
+    def intel_level(self, rival: RivalCiv) -> int:
+        """0 = unknown, 1 = detected, 2 = full intel (Quantum Lens or an expedition reached them)."""
+        if rival.name in self.contacts:
+            return 2
+        return self.sensors
+
+    def _mask(self, messages: List[str]) -> List[str]:
+        out: List[str] = []
+        for line in messages:
             for rival in self.rivals:
-                if rival.highest_tier >= 5:
-                    self.defeated_by = rival.name
-                    messages.append(f"### DEFEAT: {rival.name} reached Multiversal Mastery first. ###")
-                    break
-        return messages
+                level = self.intel_level(rival)
+                if level < 1:
+                    line = line.replace(rival.name, "An unknown civilization")
+                if level < 2:
+                    line = re.sub(r" \(IQ \d+\)", "", line)
+            out.append(line)
+        return out
 
     def _rival_actions(self) -> List[str]:
         """Each rival uses its signature move. Disunity makes you easy prey; Counter-Intelligence helps."""
         messages: List[str] = []
         defense = self.espionage_defense()
         for rival in self.rivals:
+            if rival.ascended:
+                continue
+            reached = rival.name in self.contacts
             if rival.specialty == "biosphere":
-                if self.rng.random() < 0.03:
+                if self.rng.random() < (0.06 if reached else 0.03):
                     gift = self.potential_wps * TICK_SECONDS * self.rng.uniform(0.5, 1.0)
                     self.watts += gift
                     rival.wps *= 1.01
                     messages.append(f"{rival.name} trade pact: shared harvests give you +{fmt_watts(gift)}.")
                 continue
-            if self.rng.random() >= 0.04 * (rival.iq / 100.0) * rival.aggression:
+            if self.rng.random() >= 0.04 * (rival.iq / 100.0) * rival.aggression * (0.3 if reached else 1.0):
                 continue
             success = rival.iq / 200.0 * (1.0 - self.population.cohesion / 150.0) * defense
             if self.rng.random() >= success:
@@ -841,12 +892,96 @@ class Game:
         return True, (f"Budget set: Comfort {comfort}% | Research {research}% | "
                       f"Conquest {conquest}% | Reserve {candidate.reserve}%.")
 
+    # ---- sensors & expeditions ---------------------------------------------- #
+
+    def sensor_cost(self, level: int) -> float:
+        return max(100.0, self.potential_wps * TICK_SECONDS * SENSOR_SPECS[level][2])
+
+    def sensor_block_reason(self) -> str:
+        if self.sensors >= len(SENSOR_SPECS):
+            return "Fully upgraded."
+        name, tech, _cost, _desc = SENSOR_SPECS[self.sensors]
+        if not self.techtree.nodes[tech].researched:
+            return f"Needs {self.techtree.nodes[tech].name}."
+        return ""
+
+    def build_sensor(self) -> Tuple[bool, str]:
+        reason = self.sensor_block_reason()
+        if reason:
+            return False, reason
+        cost = self.sensor_cost(self.sensors)
+        if self.watts < cost:
+            return False, f"Need {fmt_watts(cost)} in the treasury (have {fmt_watts(self.watts)})."
+        self.watts -= cost
+        name = SENSOR_SPECS[self.sensors][0]
+        self.sensors += 1
+        return True, f"{name} online. {SENSOR_SPECS[self.sensors - 1][3]}"
+
+    def rival_by_name(self, name: str) -> Optional[RivalCiv]:
+        return next((r for r in self.rivals if r.name == name), None)
+
+    def expedition_cost(self, rival: RivalCiv) -> float:
+        return max(500.0, self.potential_wps * TICK_SECONDS * EXPEDITION_COST_TICKS * rival.distance)
+
+    def expedition_travel(self, rival: RivalCiv) -> int:
+        return int(round(EXPEDITION_TRAVEL_TICKS * rival.distance))
+
+    def expedition_odds(self) -> float:
+        odds = 0.30 + 0.06 * max(0, self.tier.level - EXPEDITION_MIN_TIER) + (0.10 if self.sensors >= 2 else 0.0)
+        return clamp(odds, 0.05, 0.65)
+
+    def expedition_block_reason(self, rival: RivalCiv) -> str:
+        if self.sensors < 1:
+            return "Build a Deep-Space Array first."
+        if rival.name in self.contacts:
+            return "Already reached."
+        if self.expedition is not None:
+            return "An expedition is already under way."
+        if self.tier.level < EXPEDITION_MIN_TIER:
+            return f"Needs Tier {EXPEDITION_MIN_TIER}."
+        return ""
+
+    def launch_expedition(self, name: str) -> Tuple[bool, str]:
+        rival = self.rival_by_name(name)
+        if rival is None or self.intel_level(rival) < 1:
+            return False, "No such civilization on your sensors."
+        reason = self.expedition_block_reason(rival)
+        if reason:
+            return False, reason
+        cost = self.expedition_cost(rival)
+        if self.watts < cost:
+            return False, f"Need {fmt_watts(cost)} in the treasury (have {fmt_watts(self.watts)})."
+        self.watts -= cost
+        eta = self.tick_count + self.expedition_travel(rival)
+        self.expedition = {"target": rival.name, "arrive": eta}
+        return True, (f"Expedition launched toward {rival.name}: arrives at tick {eta} "
+                      f"({self.expedition_odds() * 100:.0f}% chance of reaching it).")
+
+    def _expedition_tick(self) -> List[str]:
+        exp = self.expedition
+        if exp is None or self.tick_count < int(exp["arrive"]):  # type: ignore[arg-type]
+            return []
+        self.expedition = None
+        rival = self.rival_by_name(str(exp["target"]))
+        if rival is None:
+            return []
+        if self.rng.random() >= self.expedition_odds():
+            self.expedition_failures += 1
+            return [f"! Expedition to {rival.name} was lost in the void. The ship never answered."]
+        self.contacts.append(rival.name)
+        self.research_fund += self.potential_wps * TICK_SECONDS * FIRST_CONTACT_RESEARCH_TICKS
+        self.population.cohesion = clamp(self.population.cohesion + 8.0, 0.0, 100.0)
+        messages = [f"*** FIRST CONTACT: your expedition reached {rival.name}! Their world is now open to you, "
+                    f"their attacks will ease, and shared knowledge floods your labs. ***"]
+        messages.extend(self.achievements.check(self))
+        return messages
+
     def victory(self) -> bool:
         return self.highest_tier >= 5 and self.techtree.all_researched()
 
     @property
     def game_over(self) -> bool:
-        return self.victory() or self.defeated_by is not None
+        return self.victory()  # a rival's ascension is never a loss
 
     def refresh(self) -> List[str]:
         """Re-evaluate tier and achievements after a player action."""
@@ -864,7 +999,10 @@ class Game:
             "conquest_bonus": self.conquest_bonus,
             "highest_tier": self.highest_tier,
             "crises_resolved": self.crises_resolved,
-            "defeated_by": self.defeated_by,
+            "sensors": self.sensors,
+            "contacts": list(self.contacts),
+            "expedition": self.expedition,
+            "expedition_failures": self.expedition_failures,
             "allocation": {"comfort": self.allocation.comfort, "research": self.allocation.research,
                            "conquest": self.allocation.conquest},
             "population": {"free_will": self.population.free_will, "cohesion": self.population.cohesion,
@@ -877,7 +1015,7 @@ class Game:
             "industries": {i.key: i.level for i in self.industries.values()},
             "rivals": [{"name": r.name, "iq": r.iq, "start_iq": r.start_iq, "wps": r.wps,
                         "highest_tier": r.highest_tier, "blunders": r.blunders, "ticks": r.ticks,
-                        "iq_milestone": r.iq_milestone} for r in self.rivals],
+                        "iq_milestone": r.iq_milestone, "ascended_tick": r.ascended_tick} for r in self.rivals],
         }
 
     @classmethod
@@ -898,8 +1036,14 @@ class Game:
         game.conquest_bonus = num(data.get("conquest_bonus"), 0.0, 0.0, CONQUEST_BONUS_CAP)
         game.highest_tier = int(num(data.get("highest_tier"), 0, 0, 5))
         game.crises_resolved = int(num(data.get("crises_resolved"), 0, 0, 10**6))
-        defeated = data.get("defeated_by")
-        game.defeated_by = defeated if isinstance(defeated, str) and defeated in {r.name for r in game.rivals} else None
+        game.sensors = int(num(data.get("sensors"), 0, 0, len(SENSOR_SPECS)))
+        names = {r.name for r in game.rivals}
+        contacts = data.get("contacts")
+        game.contacts = [c for c in dict.fromkeys(contacts) if isinstance(c, str) and c in names] if isinstance(contacts, list) else []
+        exp = data.get("expedition")
+        if isinstance(exp, dict) and exp.get("target") in names:
+            game.expedition = {"target": exp["target"], "arrive": int(num(exp.get("arrive"), 0, 0, 10**6))}
+        game.expedition_failures = int(num(data.get("expedition_failures"), 0, 0, 10**6))
 
         alloc = data.get("allocation") if isinstance(data.get("allocation"), dict) else {}
         candidate = Allocation(int(num(alloc.get("comfort"), 30, 0, 100)),  # type: ignore[union-attr]
@@ -950,7 +1094,42 @@ class Game:
                     rival.blunders = int(num(saved.get("blunders"), 0, 0, 10**6))
                     rival.ticks = int(num(saved.get("ticks"), 0, 0, 10**6))
                     rival.iq_milestone = int(num(saved.get("iq_milestone"), int(rival.iq // 10), 0, 30))
+                    rival.ascended_tick = int(num(saved.get("ascended_tick"), 0, 0, 10**6))
         return game
+
+    def _rival_view(self, index: int, r: RivalCiv) -> Dict[str, object]:
+        """A rival as the player is allowed to see it (fog of war is enforced here, server side)."""
+        level = self.intel_level(r)
+        base: Dict[str, object] = {"id": index, "known": level, "contact": r.name in self.contacts}
+        if level < 1:
+            base.update({"name": "Unknown signal"})
+            return base
+        base.update({
+            "name": r.name, "specialty": r.specialty_name, "tier": r.tier.level, "tier_name": r.tier.name,
+            "progress": r.progress if level >= 2 else round(r.progress * 10.0) / 10.0,
+            "ascended": r.ascended, "distance_ly": int(round(r.distance * 40)),
+            "expedition_cost": self.expedition_cost(r), "expedition_travel": self.expedition_travel(r),
+            "expedition_block": self.expedition_block_reason(r),
+        })
+        if level >= 2:
+            base.update({"iq": r.iq, "start_iq": r.start_iq, "label": r.label, "trait": r.trait,
+                         "wps": r.wps, "blunders": r.blunders})
+        return base
+
+    def _sensor_view(self) -> Dict[str, object]:
+        nxt: Optional[Dict[str, object]] = None
+        if self.sensors < len(SENSOR_SPECS):
+            spec = SENSOR_SPECS[self.sensors]
+            nxt = {"name": spec[0], "description": spec[3], "cost": self.sensor_cost(self.sensors),
+                   "block": self.sensor_block_reason()}
+        names = [s[0] for s in SENSOR_SPECS[:self.sensors]]
+        return {"level": self.sensors, "max": len(SENSOR_SPECS), "built": names, "next": nxt}
+
+    def _expedition_view(self) -> Dict[str, object]:
+        exp = self.expedition
+        return {"active": exp is not None, "target": exp["target"] if exp else None,
+                "arrive": exp["arrive"] if exp else None, "odds": self.expedition_odds(),
+                "failures": self.expedition_failures, "min_tier": EXPEDITION_MIN_TIER}
 
     def to_view(self) -> Dict[str, object]:
         """Everything a front end needs to render, with derived stats included."""
@@ -989,12 +1168,11 @@ class Game:
                             "growth": i.growth, "speed": i.speed, "effect": i.effect,
                             "effect_now": self.industry_effect_now(i), "cost": self.invest_cost(i)}
                            for i in self.industries.values()],
-            "rivals": [{"name": r.name, "iq": r.iq, "start_iq": r.start_iq, "label": r.label,
-                        "specialty": r.specialty_name, "trait": r.trait,
-                        "tier": r.tier.level, "tier_name": r.tier.name, "wps": r.wps,
-                        "blunders": r.blunders, "progress": r.progress} for r in self.rivals],
+            "rivals": [self._rival_view(i, r) for i, r in enumerate(self.rivals)],
+            "sensors": self._sensor_view(),
+            "expedition": self._expedition_view(),
             "victory": self.victory(),
-            "defeated_by": self.defeated_by,
+            "victory_rank": 1 + sum(1 for r in self.rivals if r.ascended),
             "game_over": self.game_over,
         }
 
@@ -1034,8 +1212,16 @@ def render_telemetry(game: Game) -> None:
         flag = "ACTIVE" if f.active else "      "
         print(f"   {flag} {f.name:<20} influence {f.influence:5.1f}  [{f.status_text()}]")
     print(" Rivals:")
-    for r in game.rivals:
-        print(f"   {r.name:<20} Tier {r.tier.level}  {fmt_watts(r.wps, True):>14}  IQ {r.iq:5.1f} ({r.label}) [{r.specialty_name}]")
+    seen = [r for r in game.rivals if game.intel_level(r) >= 1]
+    if not seen:
+        print("   (no signals detected - build a Deep-Space Array with option 8)")
+    for r in seen:
+        if game.intel_level(r) >= 2:
+            print(f"   {r.name:<20} Tier {r.tier.level}  {fmt_watts(r.wps, True):>14}  IQ {r.iq:5.1f} ({r.label}) [{r.specialty_name}]")
+        else:
+            print(f"   {r.name:<20} Tier {r.tier.level}  output ??  [{r.specialty_name}]  (detected)")
+    if game.expedition:
+        print(f" Expedition: heading for {game.expedition['target']}, arrives tick {game.expedition['arrive']}")
     print("-" * 64)
 
 
@@ -1043,17 +1229,53 @@ def print_menu() -> None:
     print(" 1: Step Tick  (e.g. '1 10' to step 10)   2: Research Tech")
     print(" 3: Address Faction Unrest                 4: Exit")
     print(" 5: Adjust Budget Allocation               6: Intel Report (rivals)")
-    print(" 7: Invest in Industry")
+    print(" 7: Invest in Industry                    8: Sensors & Expeditions")
 
 
 def menu_intel(game: Game) -> None:
     print("\n INTEL REPORT - rival civilizations")
-    for r in sorted(game.rivals, key=lambda x: x.wps, reverse=True):
-        print(f"  {r.name:<20} Tier {r.tier.level} {r.tier.name}")
-        print(f"     Specialty: {r.specialty_name} - {r.trait}")
-        print(f"     Output {fmt_watts(r.wps, True)}   Race to Tier 5 {bar(r.progress * 100, 20)} {r.progress * 100:4.0f}%")
-        print(f"     IQ {r.iq:5.1f} ({r.label}), started {r.start_iq:5.1f} ({r.iq - r.start_iq:+.1f})   blunders {r.blunders}")
-    print("  Smart rivals compound faster, blunder less, and steal more from a disunited civilization.")
+    seen = [r for r in game.rivals if game.intel_level(r) >= 1]
+    if not seen:
+        print("  Nothing on the sensors. Somebody out there may be watching you.")
+        return
+    for r in sorted(seen, key=lambda x: x.wps, reverse=True):
+        full = game.intel_level(r) >= 2
+        status = " (ASCENDED)" if r.ascended else ""
+        print(f"  {r.name:<20} Tier {r.tier.level} {r.tier.name}{status}   distance {r.distance * 40:.0f} ly")
+        print(f"     Specialty: {r.specialty_name}")
+        if full:
+            print(f"     {r.trait}")
+            print(f"     Output {fmt_watts(r.wps, True)}   Race to Tier 5 {bar(r.progress * 100, 20)} {r.progress * 100:4.0f}%")
+            print(f"     IQ {r.iq:5.1f} ({r.label}), started {r.start_iq:5.1f} ({r.iq - r.start_iq:+.1f})   blunders {r.blunders}")
+        else:
+            print("     Output and IQ unknown: build the Quantum Lens or reach their world.")
+    print("  A rival that reaches Tier 5 transcends. It is never a loss for you, only a lost race.")
+
+
+def menu_sensors(game: Game) -> None:
+    print("\n SENSORS & EXPEDITIONS")
+    print(f"  Sensors: level {game.sensors}/{len(SENSOR_SPECS)}  Treasury {fmt_watts(game.watts)}")
+    if game.sensors < len(SENSOR_SPECS):
+        name, _tech, _ticks, desc = SENSOR_SPECS[game.sensors]
+        reason = game.sensor_block_reason()
+        print(f"  b. Build {name} - cost {fmt_watts(game.sensor_cost(game.sensors))}  {desc}" + (f"  [{reason}]" if reason else ""))
+    print(f"  Expedition odds: {game.expedition_odds() * 100:.0f}% (needs Tier {EXPEDITION_MIN_TIER}; one at a time; a lost ship is gone)")
+    seen = [r for r in game.rivals if game.intel_level(r) >= 1]
+    for i, r in enumerate(seen, start=1):
+        reason = game.expedition_block_reason(r)
+        print(f"  {i}. Expedition to {r.name:<18} cost {fmt_watts(game.expedition_cost(r))}, "
+              f"{game.expedition_travel(r)} ticks" + (f"  [{reason}]" if reason else ""))
+    raw = safe_input(" Choice (b, a number, or blank to cancel): ")
+    if not raw:
+        return
+    if raw.lower() == "b":
+        ok, msg = game.build_sensor()
+    elif raw.isdigit() and 1 <= int(raw) <= len(seen):
+        ok, msg = game.launch_expedition(seen[int(raw) - 1].name)
+    else:
+        print(" Invalid selection.")
+        return
+    print(f" {'OK' if ok else 'FAILED'}: {msg}")
 
 
 def safe_input(prompt: str) -> Optional[str]:
@@ -1173,10 +1395,7 @@ def run_cli(seed: Optional[int] = None) -> int:
             render_telemetry(game)
             if game.victory():
                 print("\n *** TYPE OMEGA ACHIEVED: Multiversal Mastery with every technology unlocked. ***")
-                print(f" Your civilization ascended in {game.tick_count} ticks. Final multiplier x{game.multiplier:.2f}.")
-                return 0
-            if game.defeated_by:
-                print(f"\n *** DEFEAT: {game.defeated_by} beat you to Multiversal Mastery at tick {game.tick_count}. ***")
+                print(f" Your civilization ascended in {game.tick_count} ticks, #{1 + sum(1 for r in game.rivals if r.ascended)} to do it. Final multiplier x{game.multiplier:.2f}.")
                 return 0
         elif choice == "2":
             menu_research(game)
@@ -1195,8 +1414,11 @@ def run_cli(seed: Optional[int] = None) -> int:
         elif choice == "7":
             menu_industry(game)
             render_telemetry(game)
+        elif choice == "8":
+            menu_sensors(game)
+            render_telemetry(game)
         else:
-            print(" Unknown option. Choose 1-7.")
+            print(" Unknown option. Choose 1-8.")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

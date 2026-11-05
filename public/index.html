@@ -65,6 +65,8 @@
                border-radius: 10px; padding: 6px 8px; font-size: 12px; max-width: calc(100% - 150px); }
   .maplegend .lg { display: flex; gap: 8px; align-items: center; padding: 3px 2px; cursor: pointer; }
   .maplegend .lg:hover { color: var(--accent); }
+  .maplegend .lg.locked { opacity: .55; cursor: default; }
+  .maplegend .lg.locked:hover { color: inherit; }
   .maplegend .lg.sel { color: var(--accent); font-weight: 600; }
   .maplegend .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
   .mapctl { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; }
@@ -101,7 +103,7 @@
 
   <section class="panel c12">
     <div class="row" style="margin-bottom:10px">
-      <h2 style="margin:0" class="grow">World map <span class="meta">&mdash; drag to rotate, scroll to zoom, click a name to fly there. Territory grows with output; rival attacks show as pulses.</span></h2>
+      <h2 style="margin:0" class="grow">World map <span class="meta">&mdash; drag to rotate, scroll to zoom, click a name to fly there. Territory grows with output. Rival worlds stay dark until you detect and reach them.</span></h2>
       <button id="viewEarth" class="primary">Worlds</button>
       <button id="viewGalaxy">Galaxy</button>
     </div>
@@ -156,9 +158,10 @@
   </section>
 
   <section class="panel c7">
-    <h2>Rival civilizations</h2>
+    <h2>Sensors &amp; rival civilizations</h2>
+    <div id="sensors"></div>
     <div id="rivals"></div>
-    <div class="meta" style="margin-top:8px">Each rival has a specialty and a signature move (hover for details). Smart ones compound faster and hit harder against a disunited civilization.</div>
+    <div class="meta" style="margin-top:8px">Rivals stay hidden until your sensors find them, and their worlds are a long, costly trip away (expeditions can fail). If a rival reaches Tier 5 first it transcends: you lose the race, never the game.</div>
   </section>
 
   <section class="panel c6">
@@ -234,7 +237,7 @@ function addLog(line) {
   el.className = t.startsWith('!!!') || t.startsWith('###') ? 'bad'
     : t.startsWith('***') || t.startsWith('>>>') ? 'good'
     : t.startsWith('!!') || t.startsWith('! ') ? 'warn'
-    : t.startsWith('>>') || /^(Vael|Orion|Nyx|Aurelian)/.test(t) ? 'rival' : 'dim';
+    : t.startsWith('>>') || /^(Vael|Orion|Nyx|Aurelian|An unknown)/.test(t) ? 'rival' : 'dim';
   el.textContent = line;
   if (galaxy) galaxy.handleLog(line);
   if (globe) globe.handleLog(line);
@@ -304,22 +307,44 @@ function render() {
     '<button data-address="' + esc(f.name) + '"' + (!f.active && f.influence < 5 ? ' disabled' : '') + '>Address unrest</button></div></div>'
   ).join('');
 
-  $('rivals').innerHTML = v.rivals.slice().sort((a, b) => b.wps - a.wps).map((r) =>
-    '<div class="rival" title="' + esc(r.trait) + '"><div><b>' + esc(r.name) + '</b> <span class="tag">' + esc(r.specialty) + '</span><div class="meta">Tier ' + r.tier + ' &middot; ' + fmt(r.wps, true) + '</div></div>' +
-    '<div><div class="meta">IQ ' + r.iq.toFixed(1) + ' (' + esc(r.label) + ') <span class="' + (r.iq >= r.start_iq ? '' : '') + '">' + (r.iq - r.start_iq >= 0 ? '+' : '') + (r.iq - r.start_iq).toFixed(1) + '</span></div>' +
-    '<div class="bar"><i style="width:' + pct((r.iq - 40) / 1.6) + ';background:var(--purple)"></i></div></div>' +
-    '<div><div class="meta">Race to Tier 5 &middot; ' + (r.progress * 100).toFixed(0) + '%</div><div class="bar"><i style="width:' + pct(r.progress * 100) + ';background:' + (r.progress > 0.8 ? 'var(--bad)' : 'var(--accent)') + '"></i></div></div></div>'
-  ).join('');
+  const sn = v.sensors, ex = v.expedition;
+  let sensorHtml = '<div class="item"><div class="top"><span class="name">Sensor network</span><span class="tag ' + (sn.level ? 'good' : 'warn') + '">level ' + sn.level + '/' + sn.max + '</span></div>';
+  if (sn.next) {
+    sensorHtml += '<div class="desc">' + esc(sn.next.name) + ': ' + esc(sn.next.description) + '</div>' +
+      '<div class="row" style="margin-top:8px"><span class="meta grow">' + (sn.next.block ? esc(sn.next.block) : 'cost ' + fmt(sn.next.cost)) + '</span>' +
+      '<button data-sensor="1"' + (sn.next.block || v.watts < sn.next.cost ? ' disabled' : '') + '>Build</button></div>';
+  } else {
+    sensorHtml += '<div class="desc">Every sensor is online. Nothing hides from you now.</div>';
+  }
+  if (ex.active) sensorHtml += '<div class="meta" style="margin-top:6px">Expedition en route to <b>' + esc(ex.target) + '</b>, arrives tick ' + ex.arrive + ' (' + (ex.odds * 100).toFixed(0) + '% odds).</div>';
+  else sensorHtml += '<div class="meta" style="margin-top:6px">Expedition odds ' + (ex.odds * 100).toFixed(0) + '% &middot; needs Tier ' + ex.min_tier + ' &middot; lost ships: ' + ex.failures + '</div>';
+  $('sensors').innerHTML = sensorHtml + '</div>';
+
+  const seen = v.rivals.filter((r) => r.known >= 1).sort((a, b) => (b.wps || b.progress) - (a.wps || a.progress));
+  const unseen = v.rivals.some((r) => r.known < 1);
+  const expBtn = (r) => r.contact ? '<span class="tag good">reached</span>'
+    : '<div class="row" style="margin-top:4px"><span class="meta grow">' + (r.expedition_block ? esc(r.expedition_block) : 'expedition ' + fmt(r.expedition_cost) + ', ' + r.expedition_travel + ' ticks') + '</span>' +
+      '<button data-expedition="' + esc(r.name) + '"' + (r.expedition_block || v.watts < r.expedition_cost ? ' disabled' : '') + '>Send expedition</button></div>';
+  $('rivals').innerHTML = (seen.length ? seen.map((r) => {
+    const full = r.known >= 2;
+    const status = (r.ascended ? ' <span class="tag warn">transcended</span>' : '') + (r.contact ? ' <span class="tag good">contact</span>' : '');
+    return '<div class="rival"' + (full ? ' title="' + esc(r.trait) + '"' : '') + '><div><b>' + esc(r.name) + '</b> <span class="tag">' + esc(r.specialty) + '</span>' + status +
+      '<div class="meta">Tier ' + r.tier + ' &middot; ' + (full ? fmt(r.wps, true) : 'output ??') + ' &middot; ' + r.distance_ly + ' ly</div>' + expBtn(r) + '</div>' +
+      '<div>' + (full
+        ? '<div class="meta">IQ ' + r.iq.toFixed(1) + ' (' + esc(r.label) + ') ' + (r.iq - r.start_iq >= 0 ? '+' : '') + (r.iq - r.start_iq).toFixed(1) + '</div><div class="bar"><i style="width:' + pct((r.iq - 40) / 1.6) + ';background:var(--purple)"></i></div>'
+        : '<div class="meta">IQ ?? &middot; Quantum Lens or contact reveals it</div>') + '</div>' +
+      '<div><div class="meta">Race to Tier 5 &middot; ' + (full ? '' : '~') + (r.progress * 100).toFixed(0) + '%</div><div class="bar"><i style="width:' + pct(r.progress * 100) + ';background:' + (r.progress > 0.8 ? 'var(--bad)' : 'var(--accent)') + '"></i></div></div></div>';
+  }).join('') : '<div class="meta" style="padding:8px 0">Your sensors hear nothing. The galaxy is silent... or something out there is hiding.</div>') +
+    (unseen && seen.length ? '<div class="meta" style="padding:8px 0">More signals may lie beyond your range.</div>' : '');
 
   $('ach').innerHTML = v.achievements.map((a) =>
     '<span class="chip' + (a.unlocked ? ' on' : '') + '" title="' + esc(a.description) + '">' + esc(a.name) + ' x' + a.multiplier.toFixed(2) + '</span>').join('');
 
   const ov = $('overlay');
   if (v.game_over) {
-    $('ovTitle').textContent = v.victory ? 'TYPE OMEGA ACHIEVED' : 'DEFEAT';
-    $('ovText').textContent = v.victory
-      ? 'Multiversal Mastery with every technology unlocked in ' + v.tick + ' ticks (x' + v.multiplier.toFixed(2) + ' multiplier).'
-      : v.defeated_by + ' reached Multiversal Mastery first, at tick ' + v.tick + '.';
+    $('ovTitle').textContent = 'TYPE OMEGA ACHIEVED';
+    $('ovText').textContent = 'Multiversal Mastery with every technology unlocked in ' + v.tick + ' ticks (x' + v.multiplier.toFixed(2) + ' multiplier). ' +
+      (v.victory_rank === 1 ? 'You ascended before anyone else.' : 'Ascension #' + v.victory_rank + ' in the galaxy.');
     ov.classList.add('show'); stopAuto();
   } else {
     ov.classList.remove('show');
@@ -350,6 +375,8 @@ document.addEventListener('click', (e) => {
   else if (b.dataset.research) act({action: 'research', key: b.dataset.research});
   else if (b.dataset.invest) act({action: 'invest', key: b.dataset.invest});
   else if (b.dataset.address) act({action: 'address', faction: b.dataset.address});
+  else if (b.dataset.sensor) act({action: 'sensor'});
+  else if (b.dataset.expedition) act({action: 'expedition', target: b.dataset.expedition});
 });
 $('btnAuto').addEventListener('click', () => { auto ? stopAuto() : startAuto(); });
 async function newGame() {

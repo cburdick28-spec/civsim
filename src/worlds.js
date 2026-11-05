@@ -222,7 +222,7 @@ export async function createWorlds({ dataUrl }) {
     canvas.height = def.kind === 'earth' ? EARTH_H : PH;
     return { idx, def, name: def.name, owner: def.owner, noun: def.noun, canvas, ctx: canvas.getContext('2d'),
              version: 0, regions: null, home: -1, capital: { lat: 0, lon: 0 }, claimedCount: 0, regionCount: 0,
-             share: 0, tier: 0, progress: 0, color: '#ffffff', sig: '' };
+             share: 0, tier: 0, progress: 0, color: '#ffffff', sig: '', known: idx === 0 ? 2 : 0, civName: def.owner, locked: idx > 0 };
   });
   let wantSeed = null, builtSeed = null, building = false, ready = false, pending = null;
   const api = { worlds, earth, seed: null, onChange: null, isReady: () => ready };
@@ -252,6 +252,7 @@ export async function createWorlds({ dataUrl }) {
       const civ = civs[i];
       const claimed = claimRegions(w.regions, w.home, civ.progress);
       w.tier = civ.tier; w.progress = civ.progress; w.color = civ.color;
+      w.known = civ.known; w.civName = civ.name; w.locked = i > 0 && !civ.contact;   // fog of war
       const sig = claimed.join('') + civ.color;
       let claimedArea = 0, totalArea = 0, count = 0;
       w.regions.forEach((r, k) => { if (r.claimable) { totalArea += r.a; if (claimed[k]) { claimedArea += r.a; count++; } } });

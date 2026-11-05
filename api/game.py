@@ -31,6 +31,7 @@ class ActionRequest(BaseModel):
     seed: Optional[int] = None        # new
     count: Optional[int] = None       # step
     key: Optional[str] = None         # research / invest
+    target: Optional[str] = None      # expedition (rival name)
     faction: Optional[str] = None     # address
     comfort: Optional[int] = None     # allocate
     research: Optional[int] = None    # allocate
@@ -89,6 +90,16 @@ def handle(req: ActionRequest) -> Dict[str, Any]:
         if not req.key:
             raise HTTPException(status_code=400, detail="Missing industry key.")
         ok, message = game.invest(req.key)
+        return _respond(game, ok, message, [])
+
+    if req.action == "sensor":
+        ok, message = game.build_sensor()
+        return _respond(game, ok, message, [])
+
+    if req.action == "expedition":
+        if not req.target:
+            raise HTTPException(status_code=400, detail="Missing expedition target.")
+        ok, message = game.launch_expedition(req.target)
         return _respond(game, ok, message, [])
 
     if req.action == "allocate":

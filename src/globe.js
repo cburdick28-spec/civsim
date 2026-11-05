@@ -144,6 +144,7 @@ export function createGlobeMap({ container, labelsEl, legendEl, worlds }) {
 
   function select(i, instant) {
     sel = clamp(i, 0, worlds.worlds.length - 1);
+    if (worlds.worlds[sel].locked) sel = 0;
     const w = worlds.worlds[sel];
     globeMat.map = texs[sel];
     globeMat.needsUpdate = true;
@@ -160,14 +161,18 @@ export function createGlobeMap({ container, labelsEl, legendEl, worlds }) {
     legendEl.innerHTML = '';
     worlds.worlds.forEach((w, i) => {
       const row = document.createElement('div');
-      row.className = 'lg' + (i === sel ? ' sel' : '');
+      row.className = 'lg' + (i === sel ? ' sel' : '') + (w.locked ? ' locked' : '');
       const sw = document.createElement('span');
       sw.className = 'sw';
-      sw.style.background = w.color;
+      sw.style.background = w.locked ? '#556' : w.color;
       const txt = document.createElement('span');
-      txt.textContent = w.name + ' (' + w.owner + ') — T' + w.tier + ' · ' + w.claimedCount + '/' + w.regionCount + ' ' + w.noun + ' (' + (w.share * 100).toFixed(0) + '% of land)';
+      if (w.locked) {
+        txt.textContent = w.known >= 1 ? '🔒 ' + w.civName + ' — detected, but their world is out of reach (send an expedition)' : '🔒 Unknown world — undetected';
+      } else {
+        txt.textContent = w.name + ' (' + w.civName + ') — T' + w.tier + ' · ' + w.claimedCount + '/' + w.regionCount + ' ' + w.noun + ' (' + (w.share * 100).toFixed(0) + '% of land)';
+        row.addEventListener('click', () => select(i, false));
+      }
       row.append(sw, txt);
-      row.addEventListener('click', () => select(i, false));
       legendEl.appendChild(row);
     });
   }
@@ -178,8 +183,9 @@ export function createGlobeMap({ container, labelsEl, legendEl, worlds }) {
     let sig = '';
     worlds.worlds.forEach((w, i) => {
       if (texVersion[i] !== w.version) { texVersion[i] = w.version; texs[i].needsUpdate = true; }
-      sig += w.tier + ':' + w.claimedCount + ':' + w.color + ';';
+      sig += w.tier + ':' + w.claimedCount + ':' + w.color + ':' + w.locked + ':' + w.known + ';';
     });
+    if (worlds.worlds[sel].locked) { select(0, false); return; }
     const w = worlds.worlds[sel];
     structs.forEach((s, k) => {
       s.orbit.visible = k === sel && w.tier >= 1;
