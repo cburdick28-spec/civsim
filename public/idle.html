@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Ascension: Idle</title>
+<style>
+  :root {
+    --bg: #070b14; --panel: #0e1626; --panel2: #131d31; --line: #223152;
+    --text: #e6edf7; --dim: #8a99b8; --accent: #4cc9f0; --good: #06d6a0; --warn: #ffb703; --bad: #ef476f;
+    --purple: #9b7bff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 20% -10%, #14234a 0%, var(--bg) 60%) fixed; color: var(--text);
+         font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 14px 20px; border-bottom: 1px solid var(--line); background: rgba(7,11,20,.7); backdrop-filter: blur(6px);
+           position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .12em; text-transform: uppercase; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+  a.btn { text-decoration: none; display: inline-block; background: #1a2a4a; color: var(--text); border: 1px solid #2d4372; border-radius: 8px; padding: 7px 12px; }
+  a.btn:hover { border-color: var(--accent); }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px; display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .c12 { grid-column: span 12; } .c7 { grid-column: span 7; } .c5 { grid-column: span 5; }
+  .c5 { position: sticky; top: 74px; align-self: start; }
+  @media (max-width: 900px) { .c7, .c5 { grid-column: span 12; } .c5 { position: static; } main { padding: 12px; } }
+  .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .stat { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat .k { color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+  .stat .v { font-size: 20px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .s { color: var(--dim); font-size: 12px; margin-top: 2px; }
+  .bar { height: 8px; background: #0a1120; border-radius: 99px; overflow: hidden; border: 1px solid var(--line); margin-top: 6px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .tag.good { color: var(--good); border-color: var(--good); } .tag.warn { color: var(--warn); border-color: var(--warn); }
+  button { background: #1a2a4a; color: var(--text); border: 1px solid #2d4372; border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { background: #22386a; border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 650; }
+  button.primary:hover:not(:disabled) { background: #7bd8f6; }
+  button.danger { border-color: var(--bad); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; }
+  select, textarea { background: #0a1120; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
+  textarea { width: 100%; min-height: 70px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .meta { color: var(--dim); font-size: 12px; }
+  .item { border: 1px solid var(--line); background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .item .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .item .name { font-weight: 600; }
+  .item.hidden { display: none; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs button.on { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 650; }
+  .pane { display: none; } .pane.on { display: block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+  .chip.on { color: var(--good); border-color: var(--good); background: rgba(6,214,160,.07); }
+  #scene { position: relative; height: 280px; border-radius: 10px; overflow: hidden; background: #060a13; border: 1px solid var(--line); user-select: none; -webkit-user-select: none; }
+  #scene canvas { width: 100%; height: 100%; display: block; cursor: pointer; touch-action: manipulation; }
+  #surge { position: absolute; width: 54px; height: 54px; border-radius: 50%; display: none; cursor: pointer; z-index: 3;
+           background: radial-gradient(circle, #fff7c2 0%, #ffd23f 35%, rgba(255,160,0,.15) 70%, rgba(255,160,0,0) 100%);
+           box-shadow: 0 0 24px 8px rgba(255,210,63,.5); animation: pulse 1s ease-in-out infinite; border: 0; padding: 0; }
+  @keyframes pulse { 50% { transform: scale(1.18); } }
+  #buff { display: none; margin-top: 8px; }
+  #welcome { display: none; margin-bottom: 12px; border-color: var(--good); }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #10203d; border: 1px solid var(--accent);
+           padding: 8px 14px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; max-width: 90vw; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ascension<span>:</span> Idle</h1>
+  <div class="row">
+    <span class="tag" id="runTag">run 1</span>
+    <a class="btn" href="./">Strategy mode</a>
+  </div>
+</header>
+
+<main>
+  <section class="panel c12">
+    <div id="welcome" class="panel"><b>Welcome back, Architect.</b> <span id="welcomeText"></span> <button id="welcomeOk" style="margin-left:8px">Nice</button></div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel c5">
+    <h2>Your civilization <span class="meta">&mdash; click the world to harvest</span></h2>
+    <div id="scene"><canvas id="cv"></canvas><button id="surge" aria-label="Cosmic surge"></button></div>
+    <div id="buff" class="tag warn"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary grow" id="harvest">Harvest</button>
+      <span class="meta" id="clickInfo"></span>
+    </div>
+  </section>
+
+  <section class="panel c7">
+    <div class="tabs" id="tabs">
+      <button data-tab="gens" class="on">Industries</button>
+      <button data-tab="ups">Upgrades</button>
+      <button data-tab="asc">Ascension</button>
+      <button data-tab="ach">Achievements</button>
+      <button data-tab="set">Save</button>
+    </div>
+
+    <div class="pane on" id="pane-gens">
+      <div class="row" style="margin-bottom:10px"><span class="meta">Buy</span>
+        <select id="buyAmt"><option value="1">x1</option><option value="10">x10</option><option value="100">x100</option><option value="max">Max</option></select>
+        <span class="meta grow" style="text-align:right">Every 10/25/50/100/200/300/400 owned doubles an industry.</span></div>
+      <div id="gens"></div>
+    </div>
+    <div class="pane" id="pane-ups"><div id="ups"></div><div class="meta" id="upsNote"></div></div>
+    <div class="pane" id="pane-asc">
+      <div class="item">
+        <div class="top"><span class="name">Ascend</span><span class="tag warn" id="ascTag"></span></div>
+        <div class="meta" style="margin:6px 0">Collapse your civilization into pure Omega. You restart from a campfire, but every Omega Shard you ever earn permanently adds +4% to <b>all</b> production, and you can spend shards on perks that survive every ascension.</div>
+        <div class="row"><span class="meta grow" id="ascInfo"></span>
+          <button id="ascBtn" class="danger">Ascend</button></div>
+      </div>
+      <h2 style="margin-top:14px">Omega perks <span class="meta" id="shardBal"></span></h2>
+      <div id="perks"></div>
+    </div>
+    <div class="pane" id="pane-ach"><div class="chips" id="ach"></div><div class="meta" id="achNote" style="margin-top:10px"></div></div>
+    <div class="pane" id="pane-set">
+      <div class="row"><button id="btnExport">Export save</button><button id="btnImport">Import save</button>
+        <button id="btnReset" class="danger">Hard reset</button></div>
+      <textarea id="saveBox" placeholder="Export puts your save here. To import, paste a save here and press Import."></textarea>
+      <div class="meta" style="margin-top:8px">Autosaves every few seconds. Your save lives in this browser only. Offline progress runs at <span id="offEff"></span> up to <span id="offCap"></span>.</div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+// ==LOGIC==
+const SAVE_KEY = 'ascension-idle-save-v1';
+const TIER_T = [0, 1e3, 1e5, 1e7, 1e9, 1e11];
+const TIER_NAMES = ['Planetary Sub-Type', 'Planetary Mastery', 'Stellar Mastery', 'Galactic Mastery', 'Universal Mastery', 'Multiversal Mastery'];
+const COST_GROWTH = 1.15;
+const MILESTONES = [10, 25, 50, 100, 200, 300, 400];
+const SHARD_BONUS = 0.04;          // per shard ever earned
+const ASCEND_DIVISOR = 1e9;        // shards = floor(2 * cbrt(runTotal / divisor))
+const OFFLINE_EFF = 0.6;
+const BASE_OFFLINE_CAP = 4 * 3600; // seconds
+
+const GENS = [
+  { name: 'Campfire Co-op',     desc: 'Neighbors pool their firewood.',            cost: 15,     prod: 0.6 },
+  { name: 'Steam Works',        desc: 'Coal, pistons and smog.',                   cost: 160,    prod: 5 },
+  { name: 'Planetary Grid',     desc: 'One wire around the whole world.',          cost: 2.2e3,  prod: 45 },
+  { name: 'Fusion Foundry',     desc: 'Bottled stars, sold by the gigawatt.',      cost: 3.2e4,  prod: 420 },
+  { name: 'Orbital Array',      desc: 'Mirrors in orbit beam sunlight home.',      cost: 5e5,    prod: 4.5e3 },
+  { name: 'Dyson Swarm',        desc: 'A star dimmed to an ember for you.',        cost: 8e6,    prod: 5.5e4 },
+  { name: 'Black Hole Tap',     desc: 'Feeds on accretion disks.',                 cost: 1.4e8,  prod: 7e5 },
+  { name: 'Quasar Exchange',    desc: 'Rides a galactic jet like a power line.',   cost: 2.5e9,  prod: 1e7 },
+  { name: 'Multiversal Lattice', desc: 'Draws power from neighboring realities.',  cost: 5e10,   prod: 1.6e8 },
+  { name: 'Brane Siphon',       desc: 'Taps the vacuum between universes.',        cost: 1.2e12, prod: 2.6e9 },
+  { name: 'Cosmic String Mill', desc: 'Spins defects in spacetime into power.',    cost: 3e13,   prod: 4.4e10 },
+  { name: 'Entropy Reversal',   desc: 'Sells back the heat death.',                cost: 8e14,   prod: 8e11 },
+  { name: 'Omega Point',        desc: 'Everything that ever was, on one meter.',   cost: 2e16,   prod: 1.5e13 },
+];
+
+const UPGRADES = [   // watts-purchased, reset on ascension
+  { id: 'gloves',  name: 'Better Gloves',       desc: 'Harvest clicks x2.',                         cost: 400,    click: 2 },
+  { id: 'audit',   name: 'Efficiency Audits',   desc: 'All production x1.25.',                      cost: 5e3,    mult: 1.25 },
+  { id: 'harv',    name: 'Smart Harvesters',    desc: 'Clicks also give +1% of your production/s.', cost: 3e4,    clickPct: 0.01 },
+  { id: 'lobby',   name: 'Lobbyists',           desc: 'All production x1.5.',                       cost: 2e5,    mult: 1.5 },
+  { id: 'auto',    name: 'Automation Suite',    desc: 'All production x2.',                         cost: 5e7,    mult: 2 },
+  { id: 'harv2',   name: 'Orbital Harvesters',  desc: 'Clicks give another +3% of production/s.',   cost: 3e8,    clickPct: 0.03 },
+  { id: 'quant',   name: 'Quantum Accounting',  desc: 'All production x2.5.',                       cost: 5e11,   mult: 2.5 },
+  { id: 'fran',    name: 'Universal Franchise', desc: 'All production x3.',                         cost: 5e13,   mult: 3 },
+  { id: 'god',     name: 'Reality Patch',       desc: 'All production x4.',                         cost: 5e15,   mult: 4 },
+  { id: 'omni',    name: 'Omniscient Markets',  desc: 'All production x5.',                         cost: 5e17,   mult: 5 },
+  { id: 'loop',    name: 'Causal Loop',         desc: 'All production x6.',                         cost: 5e19,   mult: 6 },
+];
+
+const PERKS = [       // shard-purchased, survive ascension
+  { id: 'seed',  name: 'Seed Capital',      max: 4,  cost: (l) => 3 * Math.pow(3, l),   desc: (l) => 'Start each run with ' + fmtNum(1e3 * Math.pow(10, l + 1)) + ' W (next level).' },
+  { id: 'staff', name: 'Veteran Staff',     max: 10, cost: (l) => 3 * Math.pow(1.9, l), desc: () => 'Industries cost 3% less per level.' },
+  { id: 'dilate',name: 'Time Dilation',     max: 5,  cost: (l) => 10 * Math.pow(2, l),  desc: () => 'Offline cap +4 hours per level.' },
+  { id: 'magnet',name: 'Surge Magnet',      max: 5,  cost: (l) => 8 * Math.pow(2, l),   desc: () => 'Cosmic surges appear 20% more often and last longer.' },
+  { id: 'clicker',name: 'Auto-Harvester',   max: 10, cost: (l) => 12 * Math.pow(1.8, l),desc: () => 'Harvests for you: +1 click per second per level.' },
+  { id: 'manager',name: 'Autobuy Manager',  max: 1,  cost: () => 60,                    desc: () => 'Automatically buys the best industry for you (toggle on).' },
+];
+
+const ACHS = [
+  { id: 'c1',    name: 'First Spark',      desc: 'Harvest once.',                 test: (s) => s.clicks >= 1 },
+  { id: 'c100',  name: 'Hard Worker',      desc: 'Harvest 100 times.',            test: (s) => s.clicks >= 100 },
+  { id: 'c2000', name: 'Calloused Hands',  desc: 'Harvest 2,000 times.',          test: (s) => s.clicks >= 2000 },
+  { id: 'l3',    name: 'Kilowatt Club',    desc: 'Earn 1 kW of lifetime energy.', test: (s) => s.lifetime >= 1e3 },
+  { id: 'l6',    name: 'Megawatt Mogul',   desc: 'Earn 1 MW lifetime.',           test: (s) => s.lifetime >= 1e6 },
+  { id: 'l9',    name: 'Gigawatt Baron',   desc: 'Earn 1 GW lifetime.',           test: (s) => s.lifetime >= 1e9 },
+  { id: 'l12',   name: 'Terawatt Tycoon',  desc: 'Earn 1 TW lifetime.',           test: (s) => s.lifetime >= 1e12 },
+  { id: 'l15',   name: 'Petawatt Emperor', desc: 'Earn 1 PW lifetime.',           test: (s) => s.lifetime >= 1e15 },
+  { id: 'l18',   name: 'Exawatt Deity',    desc: 'Earn 1 EW lifetime.',           test: (s) => s.lifetime >= 1e18 },
+  { id: 'g10',   name: 'Specialist',       desc: 'Own 10 of one industry.',       test: (s) => s.gens.some((n) => n >= 10) },
+  { id: 'g50',   name: 'Monopolist',       desc: 'Own 50 of one industry.',       test: (s) => s.gens.some((n) => n >= 50) },
+  { id: 'g100',  name: 'Conglomerate',     desc: 'Own 100 industries in total.',  test: (s) => s.gens.reduce((a, b) => a + b, 0) >= 100 },
+  { id: 'all',   name: 'Diversified',      desc: 'Own every kind of industry.',   test: (s) => s.gens.every((n) => n >= 1) },
+  { id: 't1',    name: 'Tier 1',           desc: 'Reach 1 kW/s.',                 test: (s) => s.bestWps >= 1e3 },
+  { id: 't2',    name: 'Tier 2',           desc: 'Reach 100 kW/s.',               test: (s) => s.bestWps >= 1e5 },
+  { id: 't3',    name: 'Tier 3',           desc: 'Reach 10 MW/s.',                test: (s) => s.bestWps >= 1e7 },
+  { id: 't4',    name: 'Tier 4',           desc: 'Reach 1 GW/s.',                 test: (s) => s.bestWps >= 1e9 },
+  { id: 't5',    name: 'Tier 5',           desc: 'Reach 100 GW/s.',               test: (s) => s.bestWps >= 1e11 },
+  { id: 'a1',    name: 'Reborn',           desc: 'Ascend once.',                  test: (s) => s.ascensions >= 1 },
+  { id: 'a5',    name: 'Cycle of Light',   desc: 'Ascend five times.',            test: (s) => s.ascensions >= 5 },
+  { id: 'surge', name: 'Lucky Star',       desc: 'Catch a cosmic surge.',         test: (s) => s.surges >= 1 },
+];
+const ACH_BONUS = 1.02;
+
+const UNITS = ['W', 'kW', 'MW', 'GW', 'TW', 'PW', 'EW', 'ZW', 'YW'];
+function fmtW(v, perSec) {
+  if (!isFinite(v)) return '∞';
+  let i = 0, x = Math.abs(v);
+  while (x >= 1000 && i < UNITS.length - 1) { x /= 1000; i++; }
+  const sign = v < 0 ? '-' : '';
+  if (i === UNITS.length - 1 && x >= 1000) return sign + v.toExponential(2).replace('+', '') + ' W' + (perSec ? '/s' : '');
+  return sign + x.toFixed(x >= 100 ? 0 : x >= 10 ? 1 : 2) + ' ' + UNITS[i] + (perSec ? '/s' : '');
+}
+const SUFFIX = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+function fmtNum(v) {
+  if (!isFinite(v)) return '∞';
+  if (Math.abs(v) < 1000) return (Math.round(v * 10) / 10).toString();
+  let i = 0, x = Math.abs(v);
+  while (x >= 1000 && i < SUFFIX.length - 1) { x /= 1000; i++; }
+  if (x >= 1000) return v.toExponential(2).replace('+', '');
+  return (v < 0 ? '-' : '') + x.toFixed(x >= 100 ? 0 : x >= 10 ? 1 : 2) + SUFFIX[i];
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function newState(now) {
+  return {
+    v: 1, watts: 0, run: 0, lifetime: 0, shards: 0, shardsTotal: 0, ascensions: 0,
+    gens: GENS.map(() => 0), upgrades: {}, perks: {}, ach: {}, clicks: 0, surges: 0, bestWps: 0, runBestWps: 0,
+    surgeBuffUntil: 0, autobuy: false, lastSeen: now, runStart: now,
+  };
+}
+function perkLevel(s, id) { return s.perks[id] || 0; }
+
+function milestoneMult(n) { let m = 1; for (const t of MILESTONES) if (n >= t) m *= 2; return m; }
+function upgradeMult(s) { let m = 1; for (const u of UPGRADES) if (u.mult && s.upgrades[u.id]) m *= u.mult; return m; }
+function achCount(s) { return ACHS.reduce((a, x) => a + (s.ach[x.id] ? 1 : 0), 0); }
+function globalMult(s, now) {
+  let m = upgradeMult(s) * (1 + SHARD_BONUS * s.shardsTotal) * Math.pow(ACH_BONUS, achCount(s));
+  if (now < s.surgeBuffUntil) m *= 7;
+  return m;
+}
+function genRate(s, i) { return GENS[i].prod * s.gens[i] * milestoneMult(s.gens[i]); }
+function wps(s, now) {
+  let sum = 0;
+  for (let i = 0; i < GENS.length; i++) sum += genRate(s, i);
+  return sum * globalMult(s, now);
+}
+function costMult(s) { return Math.pow(0.97, perkLevel(s, 'staff')); }
+function genCost(s, i, n) {
+  const g = COST_GROWTH;
+  return GENS[i].cost * Math.pow(g, s.gens[i]) * (Math.pow(g, n) - 1) / (g - 1) * costMult(s);
+}
+function maxBuy(s, i) {
+  const base = GENS[i].cost * Math.pow(COST_GROWTH, s.gens[i]) * costMult(s);
+  if (s.watts < base) return 0;
+  return Math.floor(Math.log(1 + s.watts * (COST_GROWTH - 1) / base) / Math.log(COST_GROWTH));
+}
+function buyGen(s, i, n) {
+  if (n === 'max') n = maxBuy(s, i);
+  if (n < 1) return false;
+  const c = genCost(s, i, n);
+  if (s.watts < c) return false;
+  s.watts -= c; s.gens[i] += n;
+  return true;
+}
+function buyUpgrade(s, id) {
+  const u = UPGRADES.find((x) => x.id === id);
+  if (!u || s.upgrades[id] || s.watts < u.cost) return false;
+  s.watts -= u.cost; s.upgrades[id] = true;
+  return true;
+}
+function buyPerk(s, id) {
+  const p = PERKS.find((x) => x.id === id);
+  const lvl = perkLevel(s, id);
+  if (!p || lvl >= p.max) return false;
+  const c = Math.ceil(p.cost(lvl));
+  if (s.shards < c) return false;
+  s.shards -= c; s.perks[id] = lvl + 1;
+  return true;
+}
+function clickValue(s, now) {
+  let mult = 1, pct = 0.0;
+  for (const u of UPGRADES) {
+    if (u.click && s.upgrades[u.id]) mult *= u.click;
+    if (u.clickPct && s.upgrades[u.id]) pct += u.clickPct;
+  }
+  const g = (1 + SHARD_BONUS * s.shardsTotal) * (now < s.surgeBuffUntil ? 7 : 1);
+  return (1 * mult + wps(s, now) * pct) * g;
+}
+function addEnergy(s, amount) { s.watts += amount; s.run += amount; s.lifetime += amount; }
+function tierOf(w) { let t = 0; for (let i = 1; i < TIER_T.length; i++) if (w >= TIER_T[i]) t = i; return t; }
+function ascendGain(s) { return Math.floor(2 * Math.cbrt(s.run / ASCEND_DIVISOR)); }
+function startingWatts(s) { const l = perkLevel(s, 'seed'); return l ? 1e3 * Math.pow(10, l) : 0; }
+function doAscend(s, now) {
+  const gain = ascendGain(s);
+  if (gain < 1) return 0;
+  s.shards += gain; s.shardsTotal += gain; s.ascensions += 1;
+  s.gens = GENS.map(() => 0); s.upgrades = {}; s.watts = 0; s.run = 0;
+  s.surgeBuffUntil = 0; s.runBestWps = 0; s.runStart = now;
+  addEnergy(s, startingWatts(s)); s.lifetime -= startingWatts(s);   // seed capital is not "earned"
+  return gain;
+}
+function offlineCap(s) { return BASE_OFFLINE_CAP + 4 * 3600 * perkLevel(s, 'dilate'); }
+function surgeInterval(s) { return 75 / (1 + 0.2 * perkLevel(s, 'magnet')); }   // average seconds
+
+/** Advance the simulation by dt seconds. */
+function advance(s, dt, now) {
+  const w = wps(s, now);
+  addEnergy(s, w * dt);
+  if (w > s.bestWps) s.bestWps = w;
+  if (w > s.runBestWps) s.runBestWps = w;
+}
+/** Best-payback autobuy used by the Autobuy Manager perk (and the balance bot). */
+function autoBuyStep(s, now) {
+  let bought = false;
+  for (const u of UPGRADES) if (!s.upgrades[u.id] && s.watts >= u.cost) { buyUpgrade(s, u.id); bought = true; }
+  let best = -1, bestScore = Infinity;
+  const before = wps(s, now);
+  for (let i = 0; i < GENS.length; i++) {
+    const c = genCost(s, i, 1);
+    if (c > s.watts) continue;
+    s.gens[i]++; const gain = wps(s, now) - before; s.gens[i]--;
+    const score = c / Math.max(gain, 1e-9);
+    if (score < bestScore) { bestScore = score; best = i; }
+  }
+  if (best >= 0) { buyGen(s, best, 1); bought = true; }
+  return bought;
+}
+function checkAch(s) {
+  const fresh = [];
+  for (const a of ACHS) if (!s.ach[a.id] && a.test(s)) { s.ach[a.id] = true; fresh.push(a); }
+  return fresh;
+}
+function sanitize(raw, now) {
+  const s = newState(now);
+  if (!raw || typeof raw !== 'object') return s;
+  const num = (v, d, lo = 0, hi = 1e300) => (typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : d);
+  s.watts = num(raw.watts, 0); s.run = num(raw.run, 0); s.lifetime = num(raw.lifetime, 0);
+  s.shards = Math.floor(num(raw.shards, 0)); s.shardsTotal = Math.floor(num(raw.shardsTotal, 0));
+  s.ascensions = Math.floor(num(raw.ascensions, 0, 0, 1e6)); s.clicks = Math.floor(num(raw.clicks, 0));
+  s.surges = Math.floor(num(raw.surges, 0, 0, 1e9)); s.bestWps = num(raw.bestWps, 0); s.runBestWps = num(raw.runBestWps, 0);
+  s.surgeBuffUntil = num(raw.surgeBuffUntil, 0); s.autobuy = !!raw.autobuy;
+  s.lastSeen = num(raw.lastSeen, now); s.runStart = num(raw.runStart, now);
+  if (Array.isArray(raw.gens)) s.gens = GENS.map((_, i) => Math.floor(num(raw.gens[i], 0, 0, 1e6)));
+  if (raw.upgrades && typeof raw.upgrades === 'object') for (const u of UPGRADES) if (raw.upgrades[u.id] === true) s.upgrades[u.id] = true;
+  if (raw.perks && typeof raw.perks === 'object') for (const p of PERKS) { const l = Math.floor(num(raw.perks[p.id], 0, 0, p.max)); if (l) s.perks[p.id] = l; }
+  if (raw.ach && typeof raw.ach === 'object') for (const a of ACHS) if (raw.ach[a.id] === true) s.ach[a.id] = true;
+  return s;
+}
+// ==/LOGIC==
+
+// ---------------- UI ----------------
+const $ = (id) => document.getElementById(id);
+let S = null, buyAmt = 1, lastFrame = Date.now(), lastSave = 0, nextSurge = 0, surgeOrbUntil = 0, tab = 'gens', confirmAsc = 0, confirmReset = 0;
+const floaters = [];
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.className = 'show';
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.className = ''; }, 2400);
+}
+
+function save() {
+  S.lastSeen = Date.now();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* storage blocked */ }
+}
+function load() {
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { raw = null; }
+  return raw ? sanitize(raw, Date.now()) : null;
+}
+
+// --- build static UI ---
+function buildGens() {
+  $('gens').innerHTML = GENS.map((g, i) =>
+    '<div class="item" id="g' + i + '"><div class="top"><span class="name">' + g.name + '</span><span class="meta" id="g' + i + 'n"></span></div>' +
+    '<div class="meta">' + g.desc + '</div><div class="meta" id="g' + i + 'p"></div>' +
+    '<div class="row" style="margin-top:6px"><span class="meta grow" id="g' + i + 'c"></span><button data-gen="' + i + '" id="g' + i + 'b">Buy</button></div></div>').join('');
+}
+function buildUps() {
+  $('ups').innerHTML = UPGRADES.map((u) =>
+    '<div class="item" id="u_' + u.id + '"><div class="top"><span class="name">' + u.name + '</span><span class="meta">' + fmtW(u.cost) + '</span></div>' +
+    '<div class="meta">' + u.desc + '</div><div class="row" style="margin-top:6px"><span class="grow"></span><button data-up="' + u.id + '" id="ub_' + u.id + '">Buy</button></div></div>').join('');
+}
+function buildPerks() {
+  $('perks').innerHTML = PERKS.map((p) =>
+    '<div class="item"><div class="top"><span class="name">' + p.name + '</span><span class="tag" id="pk_' + p.id + 'l"></span></div>' +
+    '<div class="meta" id="pk_' + p.id + 'd"></div><div class="row" style="margin-top:6px"><span class="meta grow" id="pk_' + p.id + 'c"></span>' +
+    '<button data-perk="' + p.id + '" id="pk_' + p.id + 'b">Buy</button></div></div>').join('') +
+    '<div class="item" id="autoRow"><label class="row"><input type="checkbox" id="autoChk"> <span>Autobuy Manager: on</span></label></div>';
+  $('autoChk').addEventListener('change', (e) => { S.autobuy = e.target.checked; });
+}
+function buildAch() {
+  $('ach').innerHTML = ACHS.map((a) => '<span class="chip" id="a_' + a.id + '" title="' + a.desc + '">' + a.name + '</span>').join('');
+}
+
+function stat(k, v, s, barPct) {
+  return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + s + '</div>' +
+    (barPct !== undefined ? '<div class="bar"><i style="width:' + clamp(barPct, 0, 100).toFixed(1) + '%"></i></div>' : '') + '</div>';
+}
+
+function updateUI(now) {
+  const w = wps(S, now), t = tierOf(w);
+  const lo = Math.log10(Math.max(TIER_T[t], 1)), hi = t < 5 ? Math.log10(TIER_T[t + 1]) : lo + 1;
+  const frac = t < 5 ? (Math.log10(Math.max(w, 1)) - lo) / (hi - lo) : 1;
+  const gain = ascendGain(S);
+  $('stats').innerHTML =
+    stat('Watts', fmtW(S.watts), 'lifetime ' + fmtW(S.lifetime)) +
+    stat('Production', fmtW(w, true), 'x' + fmtNum(globalMult(S, now)) + ' multiplier') +
+    stat('Tier ' + t, TIER_NAMES[t], t < 5 ? 'next at ' + fmtW(TIER_T[t + 1], true) : 'maximum tier', frac * 100) +
+    stat('Omega Shards', fmtNum(S.shards), 'earned ' + fmtNum(S.shardsTotal) + ' (+' + fmtNum(S.shardsTotal * SHARD_BONUS * 100) + '%)');
+  $('runTag').textContent = 'run ' + (S.ascensions + 1) + ' · ' + fmtDur((now - S.runStart) / 1000);
+  $('clickInfo').textContent = '+' + fmtW(clickValue(S, now)) + ' per click';
+
+  // buff banner
+  const b = $('buff');
+  if (now < S.surgeBuffUntil) { b.style.display = 'inline-block'; b.textContent = 'OVERDRIVE x7 · ' + Math.ceil((S.surgeBuffUntil - now) / 1000) + 's'; }
+  else b.style.display = 'none';
+
+  // generators
+  let maxOwned = -1; S.gens.forEach((n, i) => { if (n > 0) maxOwned = i; });
+  GENS.forEach((g, i) => {
+    const row = $('g' + i);
+    const visible = i <= maxOwned + 2 || S.watts >= GENS[i].cost * 0.4;
+    row.classList.toggle('hidden', !visible);
+    if (!visible) return;
+    const n = buyAmt === 'max' ? Math.max(1, maxBuy(S, i)) : buyAmt;
+    const cost = genCost(S, i, n);
+    $('g' + i + 'n').textContent = 'owned ' + S.gens[i] + (milestoneMult(S.gens[i]) > 1 ? ' · x' + milestoneMult(S.gens[i]) : '');
+    const per = g.prod * milestoneMult(S.gens[i]) * globalMult(S, now);
+    $('g' + i + 'p').textContent = fmtW(per, true) + ' each · total ' + fmtW(genRate(S, i) * globalMult(S, now), true);
+    $('g' + i + 'c').textContent = 'x' + n + ' for ' + fmtW(cost);
+    $('g' + i + 'b').disabled = S.watts < cost;
+  });
+
+  // upgrades: show cheapest 4 unbought
+  const open = UPGRADES.filter((u) => !S.upgrades[u.id]).slice(0, 4);
+  UPGRADES.forEach((u) => {
+    const row = $('u_' + u.id);
+    const show = open.includes(u);
+    row.classList.toggle('hidden', !show);
+    if (show) $('ub_' + u.id).disabled = S.watts < u.cost;
+  });
+  $('upsNote').textContent = open.length ? '' : 'Every upgrade bought this run. Ascend to get them again, stronger.';
+
+  // ascension
+  $('ascTag').textContent = gain >= 1 ? '+' + fmtNum(gain) + ' shards available' : 'earn ' + fmtW(ASCEND_DIVISOR / 8) + ' this run first';
+  $('ascInfo').textContent = 'This run: ' + fmtW(S.run) + ' earned. New total multiplier: x' + fmtNum((1 + SHARD_BONUS * (S.shardsTotal + gain))) + ' from shards.';
+  $('ascBtn').disabled = gain < 1;
+  $('ascBtn').textContent = confirmAsc > now ? 'Really ascend? Click again' : 'Ascend';
+  $('shardBal').textContent = '— ' + fmtNum(S.shards) + ' shards to spend';
+  PERKS.forEach((p) => {
+    const l = perkLevel(S, p.id), full = l >= p.max, c = Math.ceil(p.cost(l));
+    $('pk_' + p.id + 'l').textContent = 'lvl ' + l + '/' + p.max;
+    $('pk_' + p.id + 'd').textContent = p.desc(l);
+    $('pk_' + p.id + 'c').textContent = full ? 'maxed' : 'cost ' + fmtNum(c) + ' shards';
+    $('pk_' + p.id + 'b').disabled = full || S.shards < c;
+  });
+  $('autoRow').style.display = perkLevel(S, 'manager') ? 'block' : 'none';
+  $('autoChk').checked = S.autobuy;
+  $('btnReset').textContent = confirmReset > now ? 'Really erase everything? Click again' : 'Hard reset';
+  $('offEff').textContent = Math.round(OFFLINE_EFF * 100) + '%';
+  $('offCap').textContent = fmtDur(offlineCap(S));
+
+  // achievements
+  ACHS.forEach((a) => $('a_' + a.id).classList.toggle('on', !!S.ach[a.id]));
+  $('achNote').textContent = achCount(S) + ' / ' + ACHS.length + ' unlocked · each gives +2% production · clicks ' + fmtNum(S.clicks) + ' · ascensions ' + S.ascensions + ' · surges caught ' + S.surges;
+}
+
+function fmtDur(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? h + 'h ' + m + 'm' : m ? m + 'm ' + s + 's' : s + 's';
+}
+
+// --- actions ---
+function harvest(x, y) {
+  const now = Date.now();
+  const v = clickValue(S, now);
+  addEnergy(S, v); S.clicks++;
+  floaters.push({ x: x, y: y, text: '+' + fmtW(v), t: 0 });
+}
+function afterAction() { const fresh = checkAch(S); fresh.forEach((a) => toast('Achievement: ' + a.name)); updateUI(Date.now()); }
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.gen !== undefined) { buyGen(S, Number(b.dataset.gen), buyAmt); afterAction(); }
+  else if (b.dataset.up) { buyUpgrade(S, b.dataset.up); afterAction(); }
+  else if (b.dataset.perk) { buyPerk(S, b.dataset.perk); afterAction(); }
+  else if (b.dataset.tab) {
+    tab = b.dataset.tab;
+    document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === 'pane-' + tab));
+  }
+});
+$('buyAmt').addEventListener('change', (e) => { buyAmt = e.target.value === 'max' ? 'max' : Number(e.target.value); updateUI(Date.now()); });
+$('harvest').addEventListener('click', () => { const r = $('cv').getBoundingClientRect(); harvest(r.width / 2, r.height / 2); afterAction(); });
+$('ascBtn').addEventListener('click', () => {
+  const now = Date.now();
+  if (confirmAsc > now) {
+    const gain = doAscend(S, now); confirmAsc = 0;
+    if (gain) { toast('Ascended! +' + fmtNum(gain) + ' Omega Shards'); save(); }
+    afterAction();
+  } else { confirmAsc = now + 4000; updateUI(now); }
+});
+$('btnReset').addEventListener('click', () => {
+  const now = Date.now();
+  if (confirmReset > now) { S = newState(now); confirmReset = 0; save(); toast('Save erased.'); afterAction(); }
+  else { confirmReset = now + 4000; updateUI(now); }
+});
+$('btnExport').addEventListener('click', () => { save(); $('saveBox').value = btoa(unescape(encodeURIComponent(JSON.stringify(S)))); toast('Copy the text from the box.'); });
+$('btnImport').addEventListener('click', () => {
+  try {
+    const raw = JSON.parse(decodeURIComponent(escape(atob($('saveBox').value.trim()))));
+    S = sanitize(raw, Date.now()); save(); toast('Save imported.'); afterAction();
+  } catch (e) { toast('That save text is not valid.'); }
+});
+$('welcomeOk').addEventListener('click', () => { $('welcome').style.display = 'none'; });
+
+// --- cosmic surge (golden orb) ---
+function scheduleSurge(now) { nextSurge = now + surgeInterval(S) * 1000 * (0.5 + Math.random()); }
+function maybeSurge(now) {
+  const orb = $('surge');
+  if (surgeOrbUntil && now > surgeOrbUntil) { surgeOrbUntil = 0; orb.style.display = 'none'; scheduleSurge(now); }
+  if (!surgeOrbUntil && now >= nextSurge) {
+    const sc = $('scene');
+    orb.style.left = (30 + Math.random() * Math.max(10, sc.clientWidth - 114)) + 'px';
+    orb.style.top = (20 + Math.random() * Math.max(10, sc.clientHeight - 94)) + 'px';
+    orb.style.display = 'block';
+    surgeOrbUntil = now + (10 + 2 * perkLevel(S, 'magnet')) * 1000;
+  }
+}
+$('surge').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const now = Date.now(), w = wps(S, now);
+  S.surges++;
+  if (Math.random() < 0.5) {
+    const gain = Math.max(w * 60, clickValue(S, now) * 100);
+    addEnergy(S, gain); toast('Windfall! +' + fmtW(gain));
+  } else {
+    S.surgeBuffUntil = now + (20 + 4 * perkLevel(S, 'magnet')) * 1000; toast('OVERDRIVE! Production x7');
+  }
+  $('surge').style.display = 'none'; surgeOrbUntil = 0; scheduleSurge(now);
+  afterAction();
+});
+
+// --- scene (canvas) ---
+const cv = $('cv'), ctx = cv.getContext('2d');
+const stars = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.2 + 0.3, s: Math.random() * 0.02 + 0.005 }));
+function fitCanvas() {
+  const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(10, Math.round(r.width * d)); cv.height = Math.max(10, Math.round(r.height * d));
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+}
+new ResizeObserver(fitCanvas).observe(cv);
+cv.addEventListener('pointerdown', (e) => {
+  const r = cv.getBoundingClientRect(); harvest(e.clientX - r.left, e.clientY - r.top); afterAction();
+});
+function drawScene(tm, tier, w) {
+  const W = cv.clientWidth, H = cv.clientHeight, cx = W / 2, cy = H / 2, t = tm / 1000;
+  ctx.clearRect(0, 0, W, H);
+  for (const s of stars) {
+    const x = ((s.x + t * s.s) % 1) * W;
+    ctx.fillStyle = 'rgba(190,210,255,' + (0.4 + 0.4 * Math.sin(t + s.x * 20)) + ')';
+    ctx.beginPath(); ctx.arc(x, s.y * H, s.r, 0, 6.283); ctx.fill();
+  }
+  const pr = Math.min(W, H) * 0.14;
+  if (tier >= 3) {                                            // spiral galaxy arms
+    for (let arm = 0; arm < 3; arm++) for (let k = 0; k < 90; k++) {
+      const f = k / 90, a = arm * 2.094 + f * 5 + t * 0.15, r = pr * 1.4 + f * Math.min(W, H) * 0.42;
+      ctx.fillStyle = 'rgba(155,123,255,' + (0.55 - f * 0.45) + ')';
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.62, 1.6, 0, 6.283); ctx.fill();
+    }
+  }
+  if (tier >= 2) {                                            // star glow + swarm
+    const g = ctx.createRadialGradient(cx, cy, pr * 0.8, cx, cy, pr * 3.2);
+    g.addColorStop(0, 'rgba(255,200,90,.35)'); g.addColorStop(1, 'rgba(255,200,90,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, pr * 3.2, 0, 6.283); ctx.fill();
+    for (let k = 0; k < 36; k++) {
+      const a = k / 36 * 6.283 + t * 0.5;
+      ctx.fillStyle = '#ffd23f'; ctx.fillRect(cx + Math.cos(a) * pr * 2.1 - 1.5, cy + Math.sin(a) * pr * 2.1 * 0.9 - 1.5, 3, 3);
+    }
+  }
+  if (tier >= 4) {                                            // universal shell
+    ctx.strokeStyle = 'rgba(76,201,240,.35)'; ctx.setLineDash([5, 7]); ctx.lineWidth = 1.2;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(cx, cy, pr * (2.6 + k * 0.35) + Math.sin(t + k) * 2, 0, 6.283); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
+  if (tier >= 5) {                                            // multiversal lattice
+    ctx.strokeStyle = 'rgba(6,214,160,.7)'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(cx, cy, pr * 3.4, pr * 1.1, t * 0.3 + k * 1.047, 0, 6.283); ctx.stroke(); }
+  }
+  if (tier >= 1) {                                            // planetary ring
+    ctx.strokeStyle = 'rgba(76,201,240,.8)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(cx, cy, pr * 1.6, pr * 0.45, -0.4, 0, 6.283); ctx.stroke();
+  }
+  const pulse = 1 + Math.min(0.06, Math.log10(1 + w) * 0.004) * Math.sin(t * 3);
+  const pg = ctx.createRadialGradient(cx - pr * 0.35, cy - pr * 0.35, pr * 0.1, cx, cy, pr * pulse);
+  pg.addColorStop(0, '#7bd8f6'); pg.addColorStop(0.55, '#2a78c8'); pg.addColorStop(1, '#0b2748');
+  ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(cx, cy, pr * pulse, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = 'rgba(120,230,150,.45)'; ctx.lineWidth = 1;                          // continents hint
+  ctx.beginPath(); ctx.arc(cx - pr * 0.25, cy - pr * 0.1, pr * 0.35, 0.2, 2.6); ctx.stroke();
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i]; f.t += 1 / 60;
+    if (f.t > 1.1) { floaters.splice(i, 1); continue; }
+    ctx.fillStyle = 'rgba(230,237,247,' + (1 - f.t / 1.1) + ')'; ctx.font = '600 14px ui-sans-serif, system-ui';
+    ctx.textAlign = 'center'; ctx.fillText(f.text, f.x, f.y - f.t * 46);
+  }
+}
+
+// --- main loop ---
+let autoClickAcc = 0, autoBuyAcc = 0, uiAcc = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  const now = Date.now();
+  let dt = (now - lastFrame) / 1000; lastFrame = now;
+  if (dt <= 0) return;
+  if (dt > 30) {                                              // tab was asleep: treat as offline time
+    const away = Math.min(dt, offlineCap(S)), gain = wps(S, now) * away * OFFLINE_EFF;
+    addEnergy(S, gain); toast('Away ' + fmtDur(dt) + ': +' + fmtW(gain)); dt = 0.05;
+  }
+  advance(S, dt, now);
+  const clk = perkLevel(S, 'clicker');
+  if (clk) { autoClickAcc += dt * clk; while (autoClickAcc >= 1) { autoClickAcc -= 1; addEnergy(S, clickValue(S, now)); S.clicks++; } }
+  if (S.autobuy && perkLevel(S, 'manager')) { autoBuyAcc += dt; if (autoBuyAcc >= 0.5) { autoBuyAcc = 0; autoBuyStep(S, now); } }
+  maybeSurge(now);
+  uiAcc += dt;
+  if (uiAcc >= 0.1) { uiAcc = 0; const fresh = checkAch(S); fresh.forEach((a) => toast('Achievement: ' + a.name)); updateUI(now); }
+  drawScene(now, tierOf(wps(S, now)), wps(S, now));
+  if (now - lastSave > 5000) { lastSave = now; save(); }
+}
+
+function init() {
+  const now = Date.now();
+  S = load();
+  const returning = !!S;
+  if (!S) S = newState(now);
+  buildGens(); buildUps(); buildPerks(); buildAch(); fitCanvas();
+  if (returning) {
+    const away = Math.min((now - S.lastSeen) / 1000, offlineCap(S));
+    if (away > 60) {
+      const gain = wps(S, now) * away * OFFLINE_EFF;
+      addEnergy(S, gain);
+      $('welcomeText').textContent = 'You were away ' + fmtDur((now - S.lastSeen) / 1000) + ' and your industries earned ' + fmtW(gain) + '.';
+      $('welcome').style.display = 'block';
+    }
+  }
+  lastFrame = now; scheduleSurge(now);
+  checkAch(S); updateUI(now);
+  window.addEventListener('beforeunload', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>
