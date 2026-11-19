@@ -89,6 +89,7 @@
     <h2>Your civilization <span class="meta">&mdash; click the world to harvest</span></h2>
     <div id="scene"><canvas id="cv"></canvas><button id="surge" aria-label="Cosmic surge"></button></div>
     <div id="buff" class="tag warn"></div>
+    <div id="chalBanner" class="tag" style="display:none;margin-top:8px;border-color:var(--purple);color:var(--purple)"></div>
     <div class="row" style="margin-top:10px">
       <button class="primary grow" id="harvest">Harvest</button>
       <span class="meta" id="clickInfo"></span>
@@ -118,6 +119,8 @@
         <div class="row"><span class="meta grow" id="ascInfo"></span>
           <button id="ascBtn" class="danger">Ascend</button></div>
       </div>
+      <h2 style="margin-top:14px">Challenges <span class="meta">&mdash; restart under harsh rules, win a permanent x1.3 medal</span></h2>
+      <div id="chals"></div>
       <h2 style="margin-top:14px">Omega perks <span class="meta" id="shardBal"></span></h2>
       <div id="perks"></div>
     </div>
@@ -135,8 +138,8 @@
 <script>
 // ==LOGIC==
 const SAVE_KEY = 'ascension-idle-save-v1';
-const TIER_T = [0, 1e3, 1e5, 1e7, 1e9, 1e11];
-const TIER_NAMES = ['Planetary Sub-Type', 'Planetary Mastery', 'Stellar Mastery', 'Galactic Mastery', 'Universal Mastery', 'Multiversal Mastery'];
+const TIER_T = [0, 1e3, 1e5, 1e7, 1e9, 1e11, 1e14, 1e17, 1e20];
+const TIER_NAMES = ['Planetary Sub-Type', 'Planetary Mastery', 'Stellar Mastery', 'Galactic Mastery', 'Universal Mastery', 'Multiversal Mastery', 'Omega Tier I: Reality Author', 'Omega Tier II: Timeline Weaver', 'Omega Tier III: The Last Question'];
 const COST_GROWTH = 1.15;
 const MILESTONES = [10, 25, 50, 100, 200, 300, 400];
 const SHARD_BONUS = 0.04;          // per shard ever earned
@@ -158,6 +161,10 @@ const GENS = [
   { name: 'Cosmic String Mill', desc: 'Spins defects in spacetime into power.',    cost: 3e13,   prod: 4.4e10 },
   { name: 'Entropy Reversal',   desc: 'Sells back the heat death.',                cost: 8e14,   prod: 8e11 },
   { name: 'Omega Point',        desc: 'Everything that ever was, on one meter.',   cost: 2e16,   prod: 1.5e13 },
+  { name: 'Paradox Engine',     desc: 'Runs on contradictions nobody resolved.',   cost: 6e17,   prod: 3e14 },
+  { name: 'Akashic Foundry',    desc: 'Mints power from every record ever kept.',  cost: 2e19,   prod: 6e15 },
+  { name: 'Genesis Loom',       desc: 'Weaves new universes and bills them.',      cost: 7e20,   prod: 1.3e17 },
+  { name: 'The Last Question',  desc: 'Answered. The meter never stops.',          cost: 3e22,   prod: 3e18 },
 ];
 
 const UPGRADES = [   // watts-purchased, reset on ascension
@@ -167,11 +174,14 @@ const UPGRADES = [   // watts-purchased, reset on ascension
   { id: 'lobby',   name: 'Lobbyists',           desc: 'All production x1.5.',                       cost: 2e5,    mult: 1.5 },
   { id: 'auto',    name: 'Automation Suite',    desc: 'All production x2.',                         cost: 5e7,    mult: 2 },
   { id: 'harv2',   name: 'Orbital Harvesters',  desc: 'Clicks give another +3% of production/s.',   cost: 3e8,    clickPct: 0.03 },
-  { id: 'quant',   name: 'Quantum Accounting',  desc: 'All production x2.5.',                       cost: 5e11,   mult: 2.5 },
-  { id: 'fran',    name: 'Universal Franchise', desc: 'All production x3.',                         cost: 5e13,   mult: 3 },
-  { id: 'god',     name: 'Reality Patch',       desc: 'All production x4.',                         cost: 5e15,   mult: 4 },
-  { id: 'omni',    name: 'Omniscient Markets',  desc: 'All production x5.',                         cost: 5e17,   mult: 5 },
-  { id: 'loop',    name: 'Causal Loop',         desc: 'All production x6.',                         cost: 5e19,   mult: 6 },
+  { id: 'quant',   name: 'Quantum Accounting',  desc: 'All production x2.',                       cost: 5e11,   mult: 2 },
+  { id: 'fran',    name: 'Universal Franchise', desc: 'All production x2.5.',                         cost: 5e13,   mult: 2.5 },
+  { id: 'god',     name: 'Reality Patch',       desc: 'All production x3.',                         cost: 5e15,   mult: 3 },
+  { id: 'omni',    name: 'Omniscient Markets',  desc: 'All production x3.',                         cost: 5e17,   mult: 3 },
+  { id: 'loop',    name: 'Causal Loop',         desc: 'All production x4.',                         cost: 5e19,   mult: 4 },
+  { id: 'wish',    name: 'Wish Fulfilment',     desc: 'All production x4.',                         cost: 5e22,   mult: 4 },
+  { id: 'author',  name: 'Author of Laws',      desc: 'All production x5.',                        cost: 5e25,   mult: 5 },
+  { id: 'end',     name: 'Heat Death Refund',   desc: 'All production x5.',                        cost: 5e28,   mult: 5 },
 ];
 
 const PERKS = [       // shard-purchased, survive ascension
@@ -193,6 +203,8 @@ const ACHS = [
   { id: 'l12',   name: 'Terawatt Tycoon',  desc: 'Earn 1 TW lifetime.',           test: (s) => s.lifetime >= 1e12 },
   { id: 'l15',   name: 'Petawatt Emperor', desc: 'Earn 1 PW lifetime.',           test: (s) => s.lifetime >= 1e15 },
   { id: 'l18',   name: 'Exawatt Deity',    desc: 'Earn 1 EW lifetime.',           test: (s) => s.lifetime >= 1e18 },
+  { id: 'l21',   name: 'Zettawatt Legend', desc: 'Earn 1 ZW lifetime.',           test: (s) => s.lifetime >= 1e21 },
+  { id: 'l24',   name: 'Yottawatt Myth',   desc: 'Earn 1 YW lifetime.',           test: (s) => s.lifetime >= 1e24 },
   { id: 'g10',   name: 'Specialist',       desc: 'Own 10 of one industry.',       test: (s) => s.gens.some((n) => n >= 10) },
   { id: 'g50',   name: 'Monopolist',       desc: 'Own 50 of one industry.',       test: (s) => s.gens.some((n) => n >= 50) },
   { id: 'g100',  name: 'Conglomerate',     desc: 'Own 100 industries in total.',  test: (s) => s.gens.reduce((a, b) => a + b, 0) >= 100 },
@@ -202,11 +214,24 @@ const ACHS = [
   { id: 't3',    name: 'Tier 3',           desc: 'Reach 10 MW/s.',                test: (s) => s.bestWps >= 1e7 },
   { id: 't4',    name: 'Tier 4',           desc: 'Reach 1 GW/s.',                 test: (s) => s.bestWps >= 1e9 },
   { id: 't5',    name: 'Tier 5',           desc: 'Reach 100 GW/s.',               test: (s) => s.bestWps >= 1e11 },
+  { id: 't6',    name: 'Omega Tier I',     desc: 'Reach 100 TW/s.',               test: (s) => s.bestWps >= 1e14 },
+  { id: 't7',    name: 'Omega Tier II',    desc: 'Reach 100 PW/s.',               test: (s) => s.bestWps >= 1e17 },
+  { id: 't8',    name: 'Omega Tier III',   desc: 'Reach 100 EW/s.',               test: (s) => s.bestWps >= 1e20 },
+  { id: 'lq',    name: 'The Last Question', desc: 'Own a Last Question.',         test: (s) => s.gens[GENS.length - 1] >= 1 },
+  { id: 'm1',    name: 'Challenger',       desc: 'Earn a challenge medal.',       test: (s) => medalCount(s) >= 1 },
+  { id: 'm3',    name: 'Unbroken',         desc: 'Earn every challenge medal.',   test: (s) => medalCount(s) >= CHALLENGES.length },
   { id: 'a1',    name: 'Reborn',           desc: 'Ascend once.',                  test: (s) => s.ascensions >= 1 },
   { id: 'a5',    name: 'Cycle of Light',   desc: 'Ascend five times.',            test: (s) => s.ascensions >= 5 },
   { id: 'surge', name: 'Lucky Star',       desc: 'Catch a cosmic surge.',         test: (s) => s.surges >= 1 },
 ];
 const ACH_BONUS = 1.02;
+const MEDAL_BONUS = 1.3;           // permanent production multiplier per challenge medal
+const CHALLENGES = [
+  { id: 'nohands',  name: 'No Hands',  rule: 'Clicking and auto-harvest are disabled.',           goal: 1e9,  goalText: 'Reach Tier 4 (1 GW/s)' },
+  { id: 'austere',  name: 'Austerity', rule: 'Only the first six industries can be built.',       goal: 1e8,  goalText: 'Reach 100 MW/s' },
+  { id: 'brownout', name: 'Brownout',  rule: 'All production is cut to 10%.',                      goal: 3e5,  goalText: 'Reach 300 kW/s' },
+];
+const AUSTERE_LIMIT = 6;
 
 const UNITS = ['W', 'kW', 'MW', 'GW', 'TW', 'PW', 'EW', 'ZW', 'YW'];
 function fmtW(v, perSec) {
@@ -232,7 +257,7 @@ function newState(now) {
   return {
     v: 1, watts: 0, run: 0, lifetime: 0, shards: 0, shardsTotal: 0, ascensions: 0,
     gens: GENS.map(() => 0), upgrades: {}, perks: {}, ach: {}, clicks: 0, surges: 0, bestWps: 0, runBestWps: 0,
-    surgeBuffUntil: 0, autobuy: false, lastSeen: now, runStart: now,
+    surgeBuffUntil: 0, autobuy: false, lastSeen: now, runStart: now, challenge: null, medals: {},
   };
 }
 function perkLevel(s, id) { return s.perks[id] || 0; }
@@ -240,8 +265,14 @@ function perkLevel(s, id) { return s.perks[id] || 0; }
 function milestoneMult(n) { let m = 1; for (const t of MILESTONES) if (n >= t) m *= 2; return m; }
 function upgradeMult(s) { let m = 1; for (const u of UPGRADES) if (u.mult && s.upgrades[u.id]) m *= u.mult; return m; }
 function achCount(s) { return ACHS.reduce((a, x) => a + (s.ach[x.id] ? 1 : 0), 0); }
+function medalCount(s) { return CHALLENGES.reduce((a, c) => a + (s.medals[c.id] ? 1 : 0), 0); }
+/** Permanent-style multipliers only (no temporary buffs or challenge penalties). Prices inflate with these. */
+function staticMult(s) {
+  return upgradeMult(s) * (1 + SHARD_BONUS * s.shardsTotal) * Math.pow(ACH_BONUS, achCount(s)) * Math.pow(MEDAL_BONUS, medalCount(s));
+}
 function globalMult(s, now) {
-  let m = upgradeMult(s) * (1 + SHARD_BONUS * s.shardsTotal) * Math.pow(ACH_BONUS, achCount(s));
+  let m = staticMult(s);
+  if (s.challenge === 'brownout') m *= 0.1;
   if (now < s.surgeBuffUntil) m *= 7;
   return m;
 }
@@ -251,7 +282,8 @@ function wps(s, now) {
   for (let i = 0; i < GENS.length; i++) sum += genRate(s, i);
   return sum * globalMult(s, now);
 }
-function costMult(s) { return Math.pow(0.97, perkLevel(s, 'staff')); }
+const INFLATION = 0.5;   // prices rise with the square root of your multipliers, so late game stays a real climb
+function costMult(s) { return Math.pow(0.97, perkLevel(s, 'staff')) * Math.pow(Math.max(1, staticMult(s)), INFLATION); }
 function genCost(s, i, n) {
   const g = COST_GROWTH;
   return GENS[i].cost * Math.pow(g, s.gens[i]) * (Math.pow(g, n) - 1) / (g - 1) * costMult(s);
@@ -261,7 +293,9 @@ function maxBuy(s, i) {
   if (s.watts < base) return 0;
   return Math.floor(Math.log(1 + s.watts * (COST_GROWTH - 1) / base) / Math.log(COST_GROWTH));
 }
+function genLocked(s, i) { return s.challenge === 'austere' && i >= AUSTERE_LIMIT; }
 function buyGen(s, i, n) {
+  if (genLocked(s, i)) return false;
   if (n === 'max') n = maxBuy(s, i);
   if (n < 1) return false;
   const c = genCost(s, i, n);
@@ -285,6 +319,7 @@ function buyPerk(s, id) {
   return true;
 }
 function clickValue(s, now) {
+  if (s.challenge === 'nohands') return 0;
   let mult = 1, pct = 0.0;
   for (const u of UPGRADES) {
     if (u.click && s.upgrades[u.id]) mult *= u.click;
@@ -294,17 +329,38 @@ function clickValue(s, now) {
   return (1 * mult + wps(s, now) * pct) * g;
 }
 function addEnergy(s, amount) { s.watts += amount; s.run += amount; s.lifetime += amount; }
+const MAX_TIER = TIER_T.length - 1;
 function tierOf(w) { let t = 0; for (let i = 1; i < TIER_T.length; i++) if (w >= TIER_T[i]) t = i; return t; }
 function ascendGain(s) { return Math.floor(2 * Math.cbrt(s.run / ASCEND_DIVISOR)); }
 function startingWatts(s) { const l = perkLevel(s, 'seed'); return l ? 1e3 * Math.pow(10, l) : 0; }
+function resetRun(s, now) {
+  s.gens = GENS.map(() => 0); s.upgrades = {}; s.watts = 0; s.run = 0;
+  s.surgeBuffUntil = 0; s.runBestWps = 0; s.runStart = now; s.challenge = null;
+  addEnergy(s, startingWatts(s)); s.lifetime -= startingWatts(s);   // seed capital is not "earned"
+}
 function doAscend(s, now) {
   const gain = ascendGain(s);
   if (gain < 1) return 0;
   s.shards += gain; s.shardsTotal += gain; s.ascensions += 1;
-  s.gens = GENS.map(() => 0); s.upgrades = {}; s.watts = 0; s.run = 0;
-  s.surgeBuffUntil = 0; s.runBestWps = 0; s.runStart = now;
-  addEnergy(s, startingWatts(s)); s.lifetime -= startingWatts(s);   // seed capital is not "earned"
+  resetRun(s, now);
   return gain;
+}
+/** Start a challenge run: banks any shards you have earned, then restarts under the challenge rules. */
+function startChallenge(s, id, now) {
+  const c = CHALLENGES.find((x) => x.id === id);
+  if (!c || s.medals[id]) return false;
+  const gain = ascendGain(s);
+  if (gain >= 1) { s.shards += gain; s.shardsTotal += gain; s.ascensions += 1; }
+  resetRun(s, now);
+  s.challenge = id;
+  return true;
+}
+/** Returns the challenge just completed, if any. */
+function checkChallenge(s) {
+  const c = CHALLENGES.find((x) => x.id === s.challenge);
+  if (!c || s.runBestWps < c.goal) return null;
+  s.medals[c.id] = true; s.challenge = null;
+  return c;
 }
 function offlineCap(s) { return BASE_OFFLINE_CAP + 4 * 3600 * perkLevel(s, 'dilate'); }
 function surgeInterval(s) { return 75 / (1 + 0.2 * perkLevel(s, 'magnet')); }   // average seconds
@@ -323,6 +379,7 @@ function autoBuyStep(s, now) {
   let best = -1, bestScore = Infinity;
   const before = wps(s, now);
   for (let i = 0; i < GENS.length; i++) {
+    if (genLocked(s, i)) continue;
     const c = genCost(s, i, 1);
     if (c > s.watts) continue;
     s.gens[i]++; const gain = wps(s, now) - before; s.gens[i]--;
@@ -346,6 +403,8 @@ function sanitize(raw, now) {
   s.ascensions = Math.floor(num(raw.ascensions, 0, 0, 1e6)); s.clicks = Math.floor(num(raw.clicks, 0));
   s.surges = Math.floor(num(raw.surges, 0, 0, 1e9)); s.bestWps = num(raw.bestWps, 0); s.runBestWps = num(raw.runBestWps, 0);
   s.surgeBuffUntil = num(raw.surgeBuffUntil, 0); s.autobuy = !!raw.autobuy;
+  s.challenge = CHALLENGES.some((c) => c.id === raw.challenge) && !(raw.medals && raw.medals[raw.challenge]) ? raw.challenge : null;
+  if (raw.medals && typeof raw.medals === 'object') for (const c of CHALLENGES) if (raw.medals[c.id] === true) s.medals[c.id] = true;
   s.lastSeen = num(raw.lastSeen, now); s.runStart = num(raw.runStart, now);
   if (Array.isArray(raw.gens)) s.gens = GENS.map((_, i) => Math.floor(num(raw.gens[i], 0, 0, 1e6)));
   if (raw.upgrades && typeof raw.upgrades === 'object') for (const u of UPGRADES) if (raw.upgrades[u.id] === true) s.upgrades[u.id] = true;
@@ -357,6 +416,7 @@ function sanitize(raw, now) {
 
 // ---------------- UI ----------------
 const $ = (id) => document.getElementById(id);
+let confirmChal = null, confirmChalUntil = 0;
 let S = null, buyAmt = 1, lastFrame = Date.now(), lastSave = 0, nextSurge = 0, surgeOrbUntil = 0, tab = 'gens', confirmAsc = 0, confirmReset = 0;
 const floaters = [];
 
@@ -395,6 +455,12 @@ function buildPerks() {
     '<div class="item" id="autoRow"><label class="row"><input type="checkbox" id="autoChk"> <span>Autobuy Manager: on</span></label></div>';
   $('autoChk').addEventListener('change', (e) => { S.autobuy = e.target.checked; });
 }
+function buildChals() {
+  $('chals').innerHTML = CHALLENGES.map((c) =>
+    '<div class="item"><div class="top"><span class="name">' + c.name + '</span><span class="tag" id="ch_' + c.id + 's"></span></div>' +
+    '<div class="meta">' + c.rule + ' Goal: ' + c.goalText + '.</div>' +
+    '<div class="row" style="margin-top:6px"><span class="meta grow" id="ch_' + c.id + 'i"></span><button data-chal="' + c.id + '" id="ch_' + c.id + 'b">Start</button></div></div>').join('');
+}
 function buildAch() {
   $('ach').innerHTML = ACHS.map((a) => '<span class="chip" id="a_' + a.id + '" title="' + a.desc + '">' + a.name + '</span>').join('');
 }
@@ -406,13 +472,13 @@ function stat(k, v, s, barPct) {
 
 function updateUI(now) {
   const w = wps(S, now), t = tierOf(w);
-  const lo = Math.log10(Math.max(TIER_T[t], 1)), hi = t < 5 ? Math.log10(TIER_T[t + 1]) : lo + 1;
-  const frac = t < 5 ? (Math.log10(Math.max(w, 1)) - lo) / (hi - lo) : 1;
+  const lo = Math.log10(Math.max(TIER_T[t], 1)), hi = t < MAX_TIER ? Math.log10(TIER_T[t + 1]) : lo + 1;
+  const frac = t < MAX_TIER ? (Math.log10(Math.max(w, 1)) - lo) / (hi - lo) : 1;
   const gain = ascendGain(S);
   $('stats').innerHTML =
     stat('Watts', fmtW(S.watts), 'lifetime ' + fmtW(S.lifetime)) +
     stat('Production', fmtW(w, true), 'x' + fmtNum(globalMult(S, now)) + ' multiplier') +
-    stat('Tier ' + t, TIER_NAMES[t], t < 5 ? 'next at ' + fmtW(TIER_T[t + 1], true) : 'maximum tier', frac * 100) +
+    stat('Tier ' + t, TIER_NAMES[t], t < MAX_TIER ? 'next at ' + fmtW(TIER_T[t + 1], true) : 'maximum tier', frac * 100) +
     stat('Omega Shards', fmtNum(S.shards), 'earned ' + fmtNum(S.shardsTotal) + ' (+' + fmtNum(S.shardsTotal * SHARD_BONUS * 100) + '%)');
   $('runTag').textContent = 'run ' + (S.ascensions + 1) + ' · ' + fmtDur((now - S.runStart) / 1000);
   $('clickInfo').textContent = '+' + fmtW(clickValue(S, now)) + ' per click';
@@ -435,7 +501,9 @@ function updateUI(now) {
     const per = g.prod * milestoneMult(S.gens[i]) * globalMult(S, now);
     $('g' + i + 'p').textContent = fmtW(per, true) + ' each · total ' + fmtW(genRate(S, i) * globalMult(S, now), true);
     $('g' + i + 'c').textContent = 'x' + n + ' for ' + fmtW(cost);
-    $('g' + i + 'b').disabled = S.watts < cost;
+    const locked = genLocked(S, i);
+    $('g' + i + 'b').disabled = locked || S.watts < cost;
+    if (locked) $('g' + i + 'c').textContent = 'locked by Austerity';
   });
 
   // upgrades: show cheapest 4 unbought
@@ -467,6 +535,19 @@ function updateUI(now) {
   $('offEff').textContent = Math.round(OFFLINE_EFF * 100) + '%';
   $('offCap').textContent = fmtDur(offlineCap(S));
 
+  // challenges
+  CHALLENGES.forEach((c) => {
+    const done = !!S.medals[c.id], active = S.challenge === c.id;
+    $('ch_' + c.id + 's').textContent = done ? 'medal earned' : active ? 'ACTIVE' : 'open';
+    $('ch_' + c.id + 's').className = 'tag' + (done ? ' good' : active ? ' warn' : '');
+    $('ch_' + c.id + 'i').textContent = active ? 'Best this run: ' + fmtW(S.runBestWps, true) : done ? 'Completed. +30% production forever.' : 'Starting restarts your run (banks shards you have earned).';
+    $('ch_' + c.id + 'b').disabled = done || active;
+    $('ch_' + c.id + 'b').textContent = confirmChal === c.id && confirmChalUntil > now ? 'Really start? Click again' : 'Start';
+  });
+  const cb = $('chalBanner'), ac = CHALLENGES.find((c) => c.id === S.challenge);
+  cb.style.display = ac ? 'inline-block' : 'none';
+  if (ac) cb.textContent = 'CHALLENGE: ' + ac.name + ' · ' + ac.rule + ' ' + ac.goalText + ' (best ' + fmtW(S.runBestWps, true) + ')';
+
   // achievements
   ACHS.forEach((a) => $('a_' + a.id).classList.toggle('on', !!S.ach[a.id]));
   $('achNote').textContent = achCount(S) + ' / ' + ACHS.length + ' unlocked · each gives +2% production · clicks ' + fmtNum(S.clicks) + ' · ascensions ' + S.ascensions + ' · surges caught ' + S.surges;
@@ -482,6 +563,7 @@ function fmtDur(sec) {
 function harvest(x, y) {
   const now = Date.now();
   const v = clickValue(S, now);
+  if (S.challenge === 'nohands') { floaters.push({ x: x, y: y, text: 'No Hands!', t: 0 }); return; }
   addEnergy(S, v); S.clicks++;
   floaters.push({ x: x, y: y, text: '+' + fmtW(v), t: 0 });
 }
@@ -492,6 +574,12 @@ document.addEventListener('click', (e) => {
   if (b.dataset.gen !== undefined) { buyGen(S, Number(b.dataset.gen), buyAmt); afterAction(); }
   else if (b.dataset.up) { buyUpgrade(S, b.dataset.up); afterAction(); }
   else if (b.dataset.perk) { buyPerk(S, b.dataset.perk); afterAction(); }
+  else if (b.dataset.chal) {
+    const now = Date.now(), id = b.dataset.chal;
+    if (confirmChal === id && confirmChalUntil > now) { startChallenge(S, id, now); confirmChal = null; toast('Challenge started!'); save(); }
+    else { confirmChal = id; confirmChalUntil = now + 4000; }
+    afterAction();
+  }
   else if (b.dataset.tab) {
     tab = b.dataset.tab;
     document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
@@ -595,6 +683,13 @@ function drawScene(tm, tier, w) {
     ctx.strokeStyle = 'rgba(6,214,160,.7)'; ctx.lineWidth = 1.5;
     for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(cx, cy, pr * 3.4, pr * 1.1, t * 0.3 + k * 1.047, 0, 6.283); ctx.stroke(); }
   }
+  if (tier >= 6) {                                            // omega rings: reality authors
+    ctx.strokeStyle = 'rgba(255,210,63,.55)'; ctx.lineWidth = 1.2;
+    for (let k = 0; k < tier - 5; k++) { ctx.beginPath(); ctx.arc(cx, cy, pr * (4.2 + k * 0.7) + Math.sin(t * 2 + k) * 3, t, t + 4.2); ctx.stroke(); }
+  }
+  if (tier >= 8) {                                            // the last question
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.5 + 0.5 * Math.sin(t * 2)) + ')'; ctx.font = '700 18px ui-sans-serif, system-ui'; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy - pr * 2.2);
+  }
   if (tier >= 1) {                                            // planetary ring
     ctx.strokeStyle = 'rgba(76,201,240,.8)'; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.ellipse(cx, cy, pr * 1.6, pr * 0.45, -0.4, 0, 6.283); ctx.stroke();
@@ -625,12 +720,13 @@ function frame() {
     addEnergy(S, gain); toast('Away ' + fmtDur(dt) + ': +' + fmtW(gain)); dt = 0.05;
   }
   advance(S, dt, now);
-  const clk = perkLevel(S, 'clicker');
+  const clk = S.challenge === 'nohands' ? 0 : perkLevel(S, 'clicker');
   if (clk) { autoClickAcc += dt * clk; while (autoClickAcc >= 1) { autoClickAcc -= 1; addEnergy(S, clickValue(S, now)); S.clicks++; } }
   if (S.autobuy && perkLevel(S, 'manager')) { autoBuyAcc += dt; if (autoBuyAcc >= 0.5) { autoBuyAcc = 0; autoBuyStep(S, now); } }
   maybeSurge(now);
   uiAcc += dt;
-  if (uiAcc >= 0.1) { uiAcc = 0; const fresh = checkAch(S); fresh.forEach((a) => toast('Achievement: ' + a.name)); updateUI(now); }
+  if (uiAcc >= 0.1) { uiAcc = 0; const done = checkChallenge(S); if (done) { toast('Challenge complete: ' + done.name + '! +30% production forever'); save(); }
+    const fresh = checkAch(S); fresh.forEach((a) => toast('Achievement: ' + a.name)); updateUI(now); }
   drawScene(now, tierOf(wps(S, now)), wps(S, now));
   if (now - lastSave > 5000) { lastSave = now; save(); }
 }
@@ -640,7 +736,7 @@ function init() {
   S = load();
   const returning = !!S;
   if (!S) S = newState(now);
-  buildGens(); buildUps(); buildPerks(); buildAch(); fitCanvas();
+  buildGens(); buildUps(); buildPerks(); buildChals(); buildAch(); fitCanvas();
   if (returning) {
     const away = Math.min((now - S.lastSeen) / 1000, offlineCap(S));
     if (away > 60) {

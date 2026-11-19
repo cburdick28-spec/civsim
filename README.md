@@ -15,8 +15,9 @@ Deploy: import the repo in Vercel. No build step or env vars needed.
 
 `public/idle.html` (open `/idle.html`, or hit "Idle mode" in the header) is a separate single-player idle tycoon: no rivals, no server, it all runs in your browser.
 
-- Harvest by clicking the world, buy 13 industries (Campfire Co-op up to Omega Point) that earn Watts for you, and grab one-time multiplier upgrades.
-- Every 10/25/50/100/200/300/400 owned doubles an industry. Tier 1 to 5 unlock as production grows, and the world on screen evolves with them.
+- Harvest by clicking the world, buy 17 industries (Campfire Co-op up to The Last Question) that earn Watts for you, and grab one-time multiplier upgrades.
+- Every 10/25/50/100/200/300/400 owned doubles an industry. Tiers 1 to 8 (up to the Omega tiers) unlock as production grows, and the world on screen evolves with them.
+- **Challenge runs** (No Hands, Austerity, Brownout) restart you under a harsh rule; beat the goal for a permanent x1.3 medal.
 - **Ascend** to turn your run into Omega Shards: each one permanently adds +4% to all production, and you spend them on perks (seed capital, cheaper industries, longer offline cap, surge magnet, auto-harvester, autobuy manager).
 - Offline progress (60% efficiency, 4h cap, upgradeable), Cosmic Surge orbs to click, 21 achievements, autosave plus export/import.
 
